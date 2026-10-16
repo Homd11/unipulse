@@ -62,9 +62,11 @@ export default function ProfileModal({
   pushLoading = false,
   pushFeedback = null,
 }: ProfileModalProps) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup">(
+    users.length === 0 ? "signup" : "signin"
+  );
   const [selectedUserId, setSelectedUserId] = useState<string>(
-    users[0]?.id || "user-you"
+    users[0]?.id || ""
   );
   const [pin, setPin] = useState("");
   const [newName, setNewName] = useState("");
@@ -82,6 +84,14 @@ export default function ProfileModal({
   const [quietSaved, setQuietSaved] = useState(false);
 
   useEffect(() => {
+    if (users.length === 0) {
+      setMode("signup");
+    } else if (!selectedUserId && users[0]?.id) {
+      setSelectedUserId(users[0].id);
+    }
+  }, [users, selectedUserId]);
+
+  useEffect(() => {
     if (authenticatedUser) {
       setQuietStart(authenticatedUser.quietHoursStart || "01:00");
       setQuietEnd(authenticatedUser.quietHoursEnd || "08:00");
@@ -90,9 +100,12 @@ export default function ProfileModal({
 
   if (!open && !forceOpen) return null;
 
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitSignIn = async () => {
     setErrorMsg(null);
+    if (!selectedUserId) {
+      setErrorMsg("No student accounts yet. Switch to New Student Sign Up.");
+      return;
+    }
     if (!/^\d{4}$/.test(pin.trim())) {
       setErrorMsg("Enter your 4-digit PIN.");
       return;
@@ -108,11 +121,10 @@ export default function ProfileModal({
     }
   };
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitSignUp = async () => {
     setErrorMsg(null);
     if (!newName.trim() || newName.trim().length < 2) {
-      setErrorMsg("Enter your full name or nickname.");
+      setErrorMsg("Enter your name or nickname (at least 2 characters).");
       return;
     }
     if (!/^\d{4}$/.test(newPin.trim())) {
@@ -159,7 +171,7 @@ export default function ProfileModal({
             >
               {authenticatedUser
                 ? "Verified Student Session & Settings"
-                : "Sign In to UniPulse"}
+                : "Sign In or Create Student Profile"}
             </h3>
           </div>
           {!forceOpen && (
@@ -210,7 +222,10 @@ export default function ProfileModal({
             <div className="p-3.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
-                  <Moon className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
+                  <Moon
+                    className="w-3.5 h-3.5 text-[#0D9488]"
+                    aria-hidden="true"
+                  />
                   Personal Quiet Hours (Pause 2h Pings)
                 </span>
                 {quietSaved && (
@@ -327,111 +342,161 @@ export default function ProfileModal({
           </div>
         )}
 
+        {/* NOTE: Uses <div> instead of <form> + type="tel" with autocomplete="off" so browser password managers never crash on 3-character autofill */}
         {mode === "signin" ? (
-          <form onSubmit={handleSignIn} className="space-y-4">
-            <div>
-              <label
-                htmlFor="signin-user-select"
-                className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
-              >
-                Select Your Name
-              </label>
-              <select
-                id="signin-user-select"
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
-                className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
-              >
-                {users.map((u) => (
-                  <option
-                    key={u.id}
-                    value={u.id}
-                    className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
+          <div className="space-y-4" role="region" aria-label="Student Sign In">
+            {users.length === 0 ? (
+              <div className="p-4 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-center space-y-2">
+                <p className="text-xs font-semibold text-[var(--text-primary)]">
+                  No students registered yet.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMode("signup")}
+                  className="min-h-[36px] px-3.5 py-1.5 rounded-lg bg-[#0D9488] text-white text-xs font-bold cursor-pointer"
+                >
+                  Create the First Student Account →
+                </button>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label
+                    htmlFor="signin-user-select"
+                    className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
                   >
-                    {u.displayName}
-                  </option>
-                ))}
-              </select>
-            </div>
+                    Select Your Name
+                  </label>
+                  <select
+                    id="signin-user-select"
+                    value={selectedUserId}
+                    onChange={(e) => setSelectedUserId(e.target.value)}
+                    className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
+                  >
+                    {users.map((u) => (
+                      <option
+                        key={u.id}
+                        value={u.id}
+                        className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
+                      >
+                        {u.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            <div>
-              <label
-                htmlFor="signin-pin-input"
-                className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center justify-between"
-              >
-                <span className="flex items-center gap-1">
-                  <Lock className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
-                  4-Digit Security PIN *
-                </span>
-                <span className="text-[10px] text-[var(--text-muted)]">
-                  DEMO PIN: 1234
-                </span>
-              </label>
-              <input
-                id="signin-pin-input"
-                type="password"
-                inputMode="numeric"
-                pattern="\d{4}"
-                maxLength={4}
-                required
-                autoComplete="current-password"
-                value={pin}
-                onChange={(e) =>
-                  setPin(e.target.value.replace(/\D/g, "").slice(0, 4))
-                }
-                placeholder="••••"
-                className="w-full min-h-[44px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 font-mono-tabular text-center text-lg tracking-[0.5em] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
-              />
-            </div>
+                <div>
+                  <label
+                    htmlFor="signin-pin-box"
+                    className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center gap-1"
+                  >
+                    <Lock
+                      className="w-3.5 h-3.5 text-[#0D9488]"
+                      aria-hidden="true"
+                    />
+                    4-Digit Security PIN *
+                  </label>
+                  <input
+                    id="signin-pin-box"
+                    name="unipulse_pin_signin_code"
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={4}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    data-1p-ignore="true"
+                    data-lpignore="true"
+                    data-form-type="other"
+                    value={pin}
+                    onChange={(e) =>
+                      setPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && pin.length === 4) {
+                        e.preventDefault();
+                        submitSignIn();
+                      }
+                    }}
+                    placeholder="4-digit PIN"
+                    className="w-full min-h-[44px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 font-mono-tabular text-center text-lg tracking-[0.5em] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
+                  />
+                </div>
 
-            <button
-              type="submit"
-              disabled={loading || pin.length !== 4}
-              className="w-full min-h-[44px] py-3 rounded-xl bg-[#111315] hover:bg-[#272B30] text-white dark:bg-white dark:text-[#111315] disabled:opacity-40 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
-            >
-              <KeyRound className="w-4 h-4 text-[#0D9488]" aria-hidden="true" />
-              {loading ? "Verifying PIN..." : "Verify PIN & Sign In"}
-            </button>
-          </form>
+                <button
+                  type="button"
+                  onClick={submitSignIn}
+                  disabled={loading || pin.length !== 4}
+                  className="w-full min-h-[44px] py-3 rounded-xl bg-[#111315] hover:bg-[#272B30] text-white dark:bg-white dark:text-[#111315] disabled:opacity-40 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
+                >
+                  <KeyRound
+                    className="w-4 h-4 text-[#0D9488]"
+                    aria-hidden="true"
+                  />
+                  {loading ? "Verifying PIN..." : "Verify PIN & Sign In"}
+                </button>
+              </>
+            )}
+          </div>
         ) : (
-          <form onSubmit={handleSignUp} className="space-y-4">
+          <div className="space-y-4" role="region" aria-label="Student Sign Up">
             <div>
               <label
-                htmlFor="signup-name-input"
+                htmlFor="signup-display-input"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
               >
                 Your Name *
               </label>
               <input
-                id="signup-name-input"
+                id="signup-display-input"
+                name="unipulse_student_display_label"
                 type="text"
-                required
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-1p-ignore="true"
+                data-lpignore="true"
+                data-form-type="other"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g., Youssef H."
+                placeholder="e.g., Ahmed"
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
 
             <div>
               <label
-                htmlFor="signup-pin-input"
+                htmlFor="signup-pin-box"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
               >
                 Set Your 4-Digit PIN *
               </label>
               <input
-                id="signup-pin-input"
-                type="password"
+                id="signup-pin-box"
+                name="unipulse_pin_signup_code"
+                type="tel"
                 inputMode="numeric"
-                pattern="\d{4}"
                 maxLength={4}
-                required
-                autoComplete="new-password"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-1p-ignore="true"
+                data-lpignore="true"
+                data-form-type="other"
                 value={newPin}
                 onChange={(e) =>
                   setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))
                 }
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    newName.trim().length >= 2 &&
+                    newPin.length === 4
+                  ) {
+                    e.preventDefault();
+                    submitSignUp();
+                  }
+                }}
                 placeholder="Choose 4 digits (e.g. 4829)"
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 font-mono-tabular text-sm tracking-widest text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
@@ -470,14 +535,15 @@ export default function ProfileModal({
             </div>
 
             <button
-              type="submit"
-              disabled={loading || !newName.trim() || newPin.length !== 4}
+              type="button"
+              onClick={submitSignUp}
+              disabled={loading || newName.trim().length < 2 || newPin.length !== 4}
               className="w-full min-h-[44px] py-3 rounded-xl bg-[#0D9488] hover:bg-[#0F766E] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
             >
               <UserPlus className="w-4 h-4" aria-hidden="true" />
               {loading ? "Creating Account..." : "Create Account & Sign In"}
             </button>
-          </form>
+          </div>
         )}
       </div>
     </div>

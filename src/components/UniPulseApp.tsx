@@ -82,8 +82,16 @@ export default function UniPulseApp() {
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
   const [cronRunning, setCronRunning] = useState(false);
 
-  const currentUser = useMemo(
-    () => authenticatedUser || users[0],
+  const currentUser = useMemo<UserProfile>(
+    () =>
+      authenticatedUser ||
+      users[0] || {
+        id: "guest",
+        displayName: "Guest",
+        avatarColor: "#0D9488",
+        quietHoursStart: "01:00",
+        quietHoursEnd: "08:00",
+      },
     [authenticatedUser, users]
   );
 
@@ -201,49 +209,66 @@ export default function UniPulseApp() {
   }, [pendingInviteCode, authLoaded, authenticatedUser, groups, fetchServerState]);
 
   // Subscribe to Supabase Realtime postgres_changes + lightweight fallback heartbeat
+  const isAnyModalOpen =
+    showProfileModal ||
+    showCreateTaskModal ||
+    showGroupModal ||
+    Boolean(detailTaskId);
+
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchServerState();
+      }, 450);
+    };
+
     const channel = supabase
       ? supabase
           .channel("unipulse-relational-sync")
           .on(
             "postgres_changes",
             { event: "*", schema: "public", table: "tasks" },
-            () => fetchServerState()
+            scheduleRefresh
           )
           .on(
             "postgres_changes",
             { event: "*", schema: "public", table: "task_statuses" },
-            () => fetchServerState()
+            scheduleRefresh
           )
           .on(
             "postgres_changes",
             { event: "*", schema: "public", table: "task_comments" },
-            () => fetchServerState()
+            scheduleRefresh
           )
           .on(
             "postgres_changes",
             { event: "*", schema: "public", table: "task_attachments" },
-            () => fetchServerState()
+            scheduleRefresh
           )
           .on(
             "postgres_changes",
             { event: "*", schema: "public", table: "groups" },
-            () => fetchServerState()
+            scheduleRefresh
           )
           .subscribe()
       : null;
 
     const fallbackInterval = setInterval(() => {
-      fetchServerState();
-    }, 10000);
+      if (!isAnyModalOpen) {
+        fetchServerState();
+      }
+    }, 25000);
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (channel && supabase) {
         supabase.removeChannel(channel);
       }
       clearInterval(fallbackInterval);
     };
-  }, [fetchServerState]);
+  }, [fetchServerState, isAnyModalOpen]);
 
   // Authentication Handlers (Name + 4-Digit PIN)
   const handleLogin = async (userId: string, pin: string) => {
@@ -999,8 +1024,7 @@ export default function UniPulseApp() {
                   AUTHENTICATION REQUIRED FOR PRIVATE VAULT &amp; MUTATIONS
                 </span>
                 <p className="text-xs sm:text-sm font-semibold text-[var(--text-primary)] mt-0.5">
-                  Sign in with your 4-digit PIN (Demo PIN:{" "}
-                  <code className="font-mono-tabular">1234</code>) or create your student profile.
+                  Create your student profile or sign in with your 4-digit PIN to claim tasks and unlock your Private Vault.
                 </p>
               </div>
               <button
@@ -1009,7 +1033,7 @@ export default function UniPulseApp() {
                 className="min-h-[38px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#111315] text-white dark:bg-white dark:text-[#111315] text-xs font-bold cursor-pointer"
               >
                 <KeyRound className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
-                Sign In with PIN
+                Sign In / Sign Up
               </button>
             </div>
           )}
