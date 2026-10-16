@@ -1,0 +1,16 @@
+======================================================================
+CS-302 OPERATING SYSTEMS — LAB 4 SPECIFICATION
+Topic: Virtual Memory & LRU Page Replacement Algorithm
+======================================================================
+
+1. OBJECTIVE
+Implement an LRU (Least Recently Used) page replacement simulator in C++
+and compare page fault rates against FIFO and Optimal replacement across
+frame sizes: 3, 4, 5, and 8 frames.
+
+2. DELIVERABLES
+- lru_simulator.cpp (Source code)
+- benchmark_report.pdf (Graphs + analysis table)
+
+3. SUBMISSION
+Upload to Moodle before 11:59 PM tomorrow. Late submissions lose 20%.

@@ -1,0 +1,29 @@
+{
+  "name": "unipulse-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "generate-vapid": "npx web-push generate-vapid-keys --json"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "lucide-react": "^0.475.0",
+    "next": "^15.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.9",
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@types/web-push": "^3.6.4",
+    "tailwindcss": "^4.0.9",
+    "typescript": "^5.7.3"
+  }
+}
