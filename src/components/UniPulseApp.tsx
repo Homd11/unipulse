@@ -1107,17 +1107,17 @@ export default function UniPulseApp() {
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col justify-between">
+                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col justify-between min-w-0 overflow-hidden">
                   <div className="flex items-center justify-between">
                     <span className="font-mono-tabular text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                       QUIET HOURS (SLEEP)
                     </span>
                     <Moon
-                      className="w-3.5 h-3.5 text-[var(--text-muted)]"
+                      className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0"
                       aria-hidden="true"
                     />
                   </div>
-                  <div className="mt-2 flex items-center gap-1.5">
+                  <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-1 min-w-0">
                     <input
                       type="time"
                       aria-label="Quiet hours start time"
@@ -1128,9 +1128,9 @@ export default function UniPulseApp() {
                           currentUser.quietHoursEnd
                         )
                       }
-                      className="w-full bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-md px-2 py-1 font-mono-tabular text-xs font-semibold text-[var(--text-primary)]"
+                      className="compact-time-input min-w-0 w-full bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-md px-1.5 py-1.5 font-mono-tabular text-[11px] font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
                     />
-                    <span className="font-mono-tabular text-xs text-[var(--text-muted)]">
+                    <span className="font-mono-tabular text-xs text-[var(--text-muted)] px-0.5">
                       –
                     </span>
                     <input
@@ -1143,7 +1143,7 @@ export default function UniPulseApp() {
                           e.target.value
                         )
                       }
-                      className="w-full bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-md px-2 py-1 font-mono-tabular text-xs font-semibold text-[var(--text-primary)]"
+                      className="compact-time-input min-w-0 w-full bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-md px-1.5 py-1.5 font-mono-tabular text-[11px] font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
                     />
                   </div>
                 </div>

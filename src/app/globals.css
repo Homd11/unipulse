@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
   --bg-canvas: #f6f5f0;
   --bg-surface: #ffffff;
   --bg-subtle: #efede6;
@@ -19,6 +20,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --bg-canvas: #0c0d0e;
   --bg-surface: #141618;
   --bg-subtle: #1c1f22;
@@ -54,6 +56,21 @@ h3,
 .font-mono-tabular {
   font-family: var(--font-mono), monospace;
   font-variant-numeric: tabular-nums;
+}
+
+/* Prevent native browser time input indicator from overflowing narrow Bento cards */
+.compact-time-input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.compact-time-input::-webkit-calendar-picker-indicator {
+  margin-left: 2px;
+  padding: 0;
+  width: 12px;
+  height: 12px;
+  opacity: 0.65;
+  cursor: pointer;
 }
 
 /* Safe area support for iOS Standalone Home Screen PWA */
