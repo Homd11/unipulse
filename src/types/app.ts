@@ -10,6 +10,7 @@ export type CompletionState = "todo" | "in_progress" | "done";
 
 export interface UserProfile {
   id: string;
+  collegeId?: string;
   displayName: string;
   avatarColor: string;
   quietHoursStart: string; // e.g. "01:00"

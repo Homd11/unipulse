@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import {
   BellRing,
   Check,
+  Hash,
   KeyRound,
   Lock,
   LogOut,
@@ -22,10 +23,12 @@ interface ProfileModalProps {
   users: UserProfile[];
   authenticatedUser: UserProfile | null;
   onLogin: (
-    userId: string,
-    pin: string
+    userIdOrCollegeId: string,
+    pin: string,
+    byCollegeId?: boolean
   ) => Promise<{ ok: boolean; error?: string }>;
   onRegister: (
+    collegeId: string,
     name: string,
     pin: string,
     avatarColor: string
@@ -68,7 +71,10 @@ export default function ProfileModal({
   const [selectedUserId, setSelectedUserId] = useState<string>(
     users[0]?.id || ""
   );
+  const [signinCollegeId, setSigninCollegeId] = useState("");
   const [pin, setPin] = useState("");
+
+  const [newCollegeId, setNewCollegeId] = useState("");
   const [newName, setNewName] = useState("");
   const [newPin, setNewPin] = useState("");
   const [avatarColor, setAvatarColor] = useState("#0D9488");
@@ -102,8 +108,13 @@ export default function ProfileModal({
 
   const submitSignIn = async () => {
     setErrorMsg(null);
-    if (!selectedUserId) {
-      setErrorMsg("No student accounts yet. Switch to New Student Sign Up.");
+    const cleanCollege = signinCollegeId
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9-]/g, "");
+
+    if (!cleanCollege && !selectedUserId) {
+      setErrorMsg("Enter your College ID or select your name.");
       return;
     }
     if (!/^\d{4}$/.test(pin.trim())) {
@@ -111,20 +122,32 @@ export default function ProfileModal({
       return;
     }
     setLoading(true);
-    const res = await onLogin(selectedUserId, pin.trim());
+    const res = cleanCollege
+      ? await onLogin(cleanCollege, pin.trim(), true)
+      : await onLogin(selectedUserId, pin.trim(), false);
     setLoading(false);
     if (!res.ok) {
-      setErrorMsg(res.error || "Invalid 4-digit PIN.");
+      setErrorMsg(res.error || "Invalid College ID or 4-digit PIN.");
     } else {
       setPin("");
+      setSigninCollegeId("");
       onClose();
     }
   };
 
   const submitSignUp = async () => {
     setErrorMsg(null);
+    const cleanCollege = newCollegeId
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9-]/g, "");
+
+    if (!cleanCollege || cleanCollege.length < 3) {
+      setErrorMsg("Enter your College / University ID (at least 3 characters).");
+      return;
+    }
     if (!newName.trim() || newName.trim().length < 2) {
-      setErrorMsg("Enter your name or nickname (at least 2 characters).");
+      setErrorMsg("Enter your name (at least 2 characters).");
       return;
     }
     if (!/^\d{4}$/.test(newPin.trim())) {
@@ -132,11 +155,17 @@ export default function ProfileModal({
       return;
     }
     setLoading(true);
-    const res = await onRegister(newName.trim(), newPin.trim(), avatarColor);
+    const res = await onRegister(
+      cleanCollege,
+      newName.trim(),
+      newPin.trim(),
+      avatarColor
+    );
     setLoading(false);
     if (!res.ok) {
       setErrorMsg(res.error || "Registration failed.");
     } else {
+      setNewCollegeId("");
       setNewName("");
       setNewPin("");
       onClose();
@@ -163,7 +192,7 @@ export default function ProfileModal({
           <div>
             <span className="inline-flex items-center gap-1 font-mono-tabular text-[10px] font-bold uppercase tracking-widest text-[#0D9488]">
               <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-              PIN-PROTECTED BATCH SESSION
+              COLLEGE ID + PIN VERIFIED SESSION
             </span>
             <h3
               id="auth-modal-title"
@@ -198,9 +227,16 @@ export default function ProfileModal({
                   {authenticatedUser.displayName[0]?.toUpperCase()}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-[var(--text-primary)] truncate">
-                    {authenticatedUser.displayName}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-[var(--text-primary)] truncate">
+                      {authenticatedUser.displayName}
+                    </p>
+                    {authenticatedUser.collegeId && (
+                      <span className="font-mono-tabular text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
+                        ID: {authenticatedUser.collegeId}
+                      </span>
+                    )}
+                  </div>
                   <p className="font-mono-tabular text-[11px] text-[#059669] dark:text-[#10B981]">
                     SIGNED IN · PRIVATE VAULT UNLOCKED
                   </p>
@@ -342,104 +378,151 @@ export default function ProfileModal({
           </div>
         )}
 
-        {/* NOTE: Uses <div> instead of <form> + type="tel" with autocomplete="off" so browser password managers never crash on 3-character autofill */}
+        {/* NOTE: Uses <div> instead of <form> + type="tel" with autocomplete="off" so browser password managers never crash */}
         {mode === "signin" ? (
           <div className="space-y-4" role="region" aria-label="Student Sign In">
-            {users.length === 0 ? (
-              <div className="p-4 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-center space-y-2">
-                <p className="text-xs font-semibold text-[var(--text-primary)]">
-                  No students registered yet.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setMode("signup")}
-                  className="min-h-[36px] px-3.5 py-1.5 rounded-lg bg-[#0D9488] text-white text-xs font-bold cursor-pointer"
+            <div>
+              <label
+                htmlFor="signin-college-id"
+                className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center gap-1"
+              >
+                <Hash
+                  className="w-3.5 h-3.5 text-[#0D9488]"
+                  aria-hidden="true"
+                />
+                College / University ID
+              </label>
+              <input
+                id="signin-college-id"
+                name="unipulse_college_id_signin"
+                type="tel"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-1p-ignore="true"
+                data-lpignore="true"
+                data-form-type="other"
+                value={signinCollegeId}
+                onChange={(e) => setSigninCollegeId(e.target.value)}
+                placeholder="e.g., 20220145"
+                className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 font-mono-tabular text-sm uppercase tracking-wider text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
+              />
+            </div>
+
+            {users.length > 0 && !signinCollegeId.trim() && (
+              <div>
+                <label
+                  htmlFor="signin-user-select"
+                  className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
                 >
-                  Create the First Student Account →
-                </button>
+                  Or Select Your Name from Batch Roster
+                </label>
+                <select
+                  id="signin-user-select"
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
+                >
+                  {users.map((u) => (
+                    <option
+                      key={u.id}
+                      value={u.id}
+                      className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
+                    >
+                      {u.displayName}
+                      {u.collegeId ? ` (ID: ${u.collegeId})` : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
-            ) : (
-              <>
-                <div>
-                  <label
-                    htmlFor="signin-user-select"
-                    className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
-                  >
-                    Select Your Name
-                  </label>
-                  <select
-                    id="signin-user-select"
-                    value={selectedUserId}
-                    onChange={(e) => setSelectedUserId(e.target.value)}
-                    className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
-                  >
-                    {users.map((u) => (
-                      <option
-                        key={u.id}
-                        value={u.id}
-                        className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                      >
-                        {u.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="signin-pin-box"
-                    className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center gap-1"
-                  >
-                    <Lock
-                      className="w-3.5 h-3.5 text-[#0D9488]"
-                      aria-hidden="true"
-                    />
-                    4-Digit Security PIN *
-                  </label>
-                  <input
-                    id="signin-pin-box"
-                    name="unipulse_pin_signin_code"
-                    type="tel"
-                    inputMode="numeric"
-                    maxLength={4}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    data-1p-ignore="true"
-                    data-lpignore="true"
-                    data-form-type="other"
-                    value={pin}
-                    onChange={(e) =>
-                      setPin(e.target.value.replace(/\D/g, "").slice(0, 4))
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && pin.length === 4) {
-                        e.preventDefault();
-                        submitSignIn();
-                      }
-                    }}
-                    placeholder="4-digit PIN"
-                    className="w-full min-h-[44px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 font-mono-tabular text-center text-lg tracking-[0.5em] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={submitSignIn}
-                  disabled={loading || pin.length !== 4}
-                  className="w-full min-h-[44px] py-3 rounded-xl bg-[#111315] hover:bg-[#272B30] text-white dark:bg-white dark:text-[#111315] disabled:opacity-40 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
-                >
-                  <KeyRound
-                    className="w-4 h-4 text-[#0D9488]"
-                    aria-hidden="true"
-                  />
-                  {loading ? "Verifying PIN..." : "Verify PIN & Sign In"}
-                </button>
-              </>
             )}
+
+            <div>
+              <label
+                htmlFor="signin-pin-box"
+                className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center gap-1"
+              >
+                <Lock
+                  className="w-3.5 h-3.5 text-[#0D9488]"
+                  aria-hidden="true"
+                />
+                4-Digit Security PIN *
+              </label>
+              <input
+                id="signin-pin-box"
+                name="unipulse_pin_signin_code"
+                type="tel"
+                inputMode="numeric"
+                maxLength={4}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-1p-ignore="true"
+                data-lpignore="true"
+                data-form-type="other"
+                value={pin}
+                onChange={(e) =>
+                  setPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && pin.length === 4) {
+                    e.preventDefault();
+                    submitSignIn();
+                  }
+                }}
+                placeholder="4-digit PIN"
+                className="w-full min-h-[44px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 font-mono-tabular text-center text-lg tracking-[0.5em] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={submitSignIn}
+              disabled={loading || pin.length !== 4}
+              className="w-full min-h-[44px] py-3 rounded-xl bg-[#111315] hover:bg-[#272B30] text-white dark:bg-white dark:text-[#111315] disabled:opacity-40 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
+            >
+              <KeyRound
+                className="w-4 h-4 text-[#0D9488]"
+                aria-hidden="true"
+              />
+              {loading ? "Verifying PIN..." : "Verify PIN & Sign In"}
+            </button>
           </div>
         ) : (
           <div className="space-y-4" role="region" aria-label="Student Sign Up">
+            <div>
+              <label
+                htmlFor="signup-college-id-input"
+                className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center justify-between"
+              >
+                <span className="flex items-center gap-1">
+                  <Hash
+                    className="w-3.5 h-3.5 text-[#0D9488]"
+                    aria-hidden="true"
+                  />
+                  College / University ID *
+                </span>
+                <span className="text-[10px] text-[var(--text-muted)]">
+                  1 ACCOUNT PER ID
+                </span>
+              </label>
+              <input
+                id="signup-college-id-input"
+                name="unipulse_student_college_id"
+                type="tel"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-1p-ignore="true"
+                data-lpignore="true"
+                data-form-type="other"
+                value={newCollegeId}
+                onChange={(e) => setNewCollegeId(e.target.value)}
+                placeholder="e.g., 20220145"
+                className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 font-mono-tabular text-sm uppercase tracking-wider text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
+              />
+            </div>
+
             <div>
               <label
                 htmlFor="signup-display-input"
@@ -459,7 +542,7 @@ export default function ProfileModal({
                 data-form-type="other"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g., Ahmed"
+                placeholder="e.g., Ahmed M."
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
@@ -490,6 +573,7 @@ export default function ProfileModal({
                 onKeyDown={(e) => {
                   if (
                     e.key === "Enter" &&
+                    newCollegeId.trim().length >= 3 &&
                     newName.trim().length >= 2 &&
                     newPin.length === 4
                   ) {
@@ -501,7 +585,7 @@ export default function ProfileModal({
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 font-mono-tabular text-sm tracking-widest text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
               <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                Protects your Private Vault and prevents classmates from changing your tasks.
+                Linked to your College ID so no one can create duplicate accounts or open your Private Vault.
               </p>
             </div>
 
@@ -537,11 +621,16 @@ export default function ProfileModal({
             <button
               type="button"
               onClick={submitSignUp}
-              disabled={loading || newName.trim().length < 2 || newPin.length !== 4}
+              disabled={
+                loading ||
+                newCollegeId.trim().length < 3 ||
+                newName.trim().length < 2 ||
+                newPin.length !== 4
+              }
               className="w-full min-h-[44px] py-3 rounded-xl bg-[#0D9488] hover:bg-[#0F766E] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
             >
               <UserPlus className="w-4 h-4" aria-hidden="true" />
-              {loading ? "Creating Account..." : "Create Account & Sign In"}
+              {loading ? "Creating Account..." : "Register College ID & Sign In"}
             </button>
           </div>
         )}

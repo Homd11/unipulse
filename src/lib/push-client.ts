@@ -82,7 +82,11 @@ export async function requestAndSubscribeWebPush(userId: string): Promise<{
     }
 
     // 1. Request permission immediately inside user gesture
-    const permission = await Notification.requestPermission();
+    const permission =
+      Notification.permission === "granted"
+        ? "granted"
+        : await Notification.requestPermission();
+
     if (permission !== "granted") {
       return {
         ok: false,
@@ -147,13 +151,39 @@ export async function triggerServerPushNotification(params: {
   message: string;
   taskId?: string;
   intervalMinutes?: number;
-}) {
+}): Promise<{ ok: boolean; reason?: string }> {
   try {
     let subJson: PushSubscriptionJSON | undefined;
+    let reg: ServiceWorkerRegistration | undefined;
+
     if ("serviceWorker" in navigator) {
-      const reg = await navigator.serviceWorker.getRegistration();
-      const sub = await reg?.pushManager.getSubscription();
-      if (sub) subJson = sub.toJSON();
+      reg =
+        (await navigator.serviceWorker.getRegistration()) ||
+        (await navigator.serviceWorker.register("/sw.js", { scope: "/" }));
+      await navigator.serviceWorker.ready;
+      const existingSub = await reg?.pushManager.getSubscription();
+      if (existingSub) {
+        subJson = existingSub.toJSON();
+      }
+    }
+
+    // Auto-subscribe right now if not subscribed yet!
+    if (!subJson) {
+      const subResult = await requestAndSubscribeWebPush(params.userId);
+      if (subResult.ok && subResult.subscription) {
+        subJson = subResult.subscription;
+      }
+    } else {
+      // Ensure this user's subscription is synced in Supabase push_subscriptions
+      await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: params.userId,
+          subscription: subJson,
+          userAgent: navigator.userAgent,
+        }),
+      }).catch(() => {});
     }
 
     const res = await fetch("/api/push/send", {
@@ -164,8 +194,44 @@ export async function triggerServerPushNotification(params: {
         subscription: subJson,
       }),
     });
-    return await res.json();
+    const data = await res.json();
+
+    if (data?.ok && data.sentCount > 0) {
+      return { ok: true };
+    }
+
+    // Fallback: if browser push service (e.g., Brave with Google push disabled) blocked VAPID endpoint,
+    // fire native Service Worker notification directly so the user still gets the alert
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted"
+    ) {
+      if (reg && "showNotification" in reg) {
+        await reg.showNotification(params.title, {
+          body: params.message,
+          icon: "/icon-192.svg",
+          badge: "/icon-192.svg",
+          tag: params.taskId ? `task-${params.taskId}` : "unipulse-test",
+        });
+        return { ok: true };
+      } else {
+        new Notification(params.title, {
+          body: params.message,
+          icon: "/icon-192.svg",
+        });
+        return { ok: true };
+      }
+    }
+
+    return {
+      ok: false,
+      reason:
+        data?.reason || "Allow notifications in your browser/iOS prompt first.",
+    };
   } catch {
-    return { ok: false };
+    return {
+      ok: false,
+      reason: "Could not send test notification.",
+    };
   }
 }

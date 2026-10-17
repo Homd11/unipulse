@@ -95,6 +95,7 @@ export async function fetchRelationalState(
 
   const users: UserProfile[] = userRows.map((u: DbUserRow) => ({
     id: u.id,
+    collegeId: u.id.startsWith("stu-") ? u.id.slice(4) : undefined,
     displayName: u.name,
     avatarColor: u.avatar_color || "#0D9488",
     quietHoursStart: u.quiet_hours_start || "01:00",

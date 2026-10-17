@@ -270,12 +270,20 @@ export default function UniPulseApp() {
     };
   }, [fetchServerState, isAnyModalOpen]);
 
-  // Authentication Handlers (Name + 4-Digit PIN)
-  const handleLogin = async (userId: string, pin: string) => {
+  // Authentication Handlers (College ID + Name + 4-Digit PIN)
+  const handleLogin = async (
+    userIdOrCollegeId: string,
+    pin: string,
+    byCollegeId = false
+  ) => {
     const res = await fetch("/api/auth", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "LOGIN", userId, pin }),
+      body: JSON.stringify(
+        byCollegeId
+          ? { action: "LOGIN", collegeId: userIdOrCollegeId, pin }
+          : { action: "LOGIN", userId: userIdOrCollegeId, pin }
+      ),
     });
     const data = await res.json();
     if (data.ok && data.user) {
@@ -287,6 +295,7 @@ export default function UniPulseApp() {
   };
 
   const handleRegister = async (
+    collegeId: string,
     name: string,
     pin: string,
     avatarColor: string
@@ -294,7 +303,13 @@ export default function UniPulseApp() {
     const res = await fetch("/api/auth", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "REGISTER", name, pin, avatarColor }),
+      body: JSON.stringify({
+        action: "REGISTER",
+        collegeId,
+        name,
+        pin,
+        avatarColor,
+      }),
     });
     const data = await res.json();
     if (data.ok && data.user) {

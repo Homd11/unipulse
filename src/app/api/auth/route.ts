@@ -10,6 +10,13 @@ import { checkSupabaseTablesReady } from "@/lib/supabase-data";
 import { readServerDb, writeServerDb } from "@/lib/server-db";
 import { UserProfile } from "@/types/app";
 
+function normalizeCollegeId(raw: string): string {
+  return raw
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, "");
+}
+
 export async function GET() {
   const session = await getSessionUser();
   const supabase = getServiceSupabase();
@@ -18,13 +25,12 @@ export async function GET() {
   if (supabase && schemaReady) {
     const { data: rows } = await supabase
       .from("users")
-      .select(
-        "id, name, avatar_color, quiet_hours_start, quiet_hours_end"
-      )
+      .select("id, name, avatar_color, quiet_hours_start, quiet_hours_end")
       .order("created_at", { ascending: true });
 
     const users: UserProfile[] = (rows || []).map((r) => ({
       id: r.id,
+      collegeId: r.id.startsWith("stu-") ? r.id.slice(4) : undefined,
       displayName: r.name,
       avatarColor: r.avatar_color || "#0D9488",
       quietHoursStart: r.quiet_hours_start || "01:00",
@@ -46,6 +52,7 @@ export async function GET() {
   const mem = readServerDb();
   const users: UserProfile[] = mem.users.map((u) => ({
     id: u.id,
+    collegeId: u.id.startsWith("stu-") ? u.id.slice(4) : undefined,
     displayName: u.displayName,
     avatarColor: u.avatarColor,
     quietHoursStart: u.quietHoursStart,
@@ -78,8 +85,9 @@ export async function POST(request: Request) {
     const schemaReady = await checkSupabaseTablesReady();
 
     if (action === "LOGIN") {
-      const { userId, name, pin } = body as {
+      const { userId, collegeId, name, pin } = body as {
         userId?: string;
+        collegeId?: string;
         name?: string;
         pin?: string;
       };
@@ -92,16 +100,19 @@ export async function POST(request: Request) {
       }
 
       const incomingPinHash = hashPin(pin);
+      const cleanCollegeId = collegeId ? normalizeCollegeId(collegeId) : "";
 
       if (supabase && schemaReady) {
         let query = supabase.from("users").select("*");
-        if (userId) {
+        if (cleanCollegeId) {
+          query = query.eq("id", `stu-${cleanCollegeId}`);
+        } else if (userId) {
           query = query.eq("id", userId);
         } else if (name) {
           query = query.ilike("name", name.trim());
         } else {
           return NextResponse.json(
-            { ok: false, error: "Select your name to sign in." },
+            { ok: false, error: "Enter your College ID or select your name." },
             { status: 400 }
           );
         }
@@ -109,7 +120,12 @@ export async function POST(request: Request) {
         const { data: userRow, error } = await query.maybeSingle();
         if (error || !userRow) {
           return NextResponse.json(
-            { ok: false, error: "Student profile not found." },
+            {
+              ok: false,
+              error: cleanCollegeId
+                ? `No student found with College ID "${cleanCollegeId}". Switch to Sign Up to register!`
+                : "Student profile not found.",
+            },
             { status: 404 }
           );
         }
@@ -123,6 +139,9 @@ export async function POST(request: Request) {
 
         const profile: UserProfile = {
           id: userRow.id,
+          collegeId: userRow.id.startsWith("stu-")
+            ? userRow.id.slice(4)
+            : undefined,
           displayName: userRow.name,
           avatarColor: userRow.avatar_color || "#0D9488",
           quietHoursStart: userRow.quiet_hours_start || "01:00",
@@ -139,10 +158,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, user: profile });
       }
 
-      // Fallback before schema.sql is executed
+      // Fallback store
       const mem = readServerDb();
       const target = mem.users.find(
         (u) =>
+          (cleanCollegeId && u.id === `stu-${cleanCollegeId}`) ||
           (userId && u.id === userId) ||
           (name && u.displayName.toLowerCase() === name.trim().toLowerCase())
       );
@@ -172,6 +192,9 @@ export async function POST(request: Request) {
         ok: true,
         user: {
           id: target.id,
+          collegeId: target.id.startsWith("stu-")
+            ? target.id.slice(4)
+            : undefined,
           displayName: target.displayName,
           avatarColor: target.avatarColor,
           quietHoursStart: target.quietHoursStart,
@@ -182,14 +205,27 @@ export async function POST(request: Request) {
 
     if (action === "REGISTER") {
       const {
+        collegeId,
         name,
         pin,
         avatarColor = "#0D9488",
       } = body as {
+        collegeId?: string;
         name?: string;
         pin?: string;
         avatarColor?: string;
       };
+
+      const cleanCollegeId = normalizeCollegeId(collegeId || "");
+      if (!cleanCollegeId || cleanCollegeId.length < 3) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Enter your valid College / University ID (at least 3 characters).",
+          },
+          { status: 400 }
+        );
+      }
 
       const cleanName = (name || "").trim();
       if (!cleanName || cleanName.length < 2) {
@@ -201,37 +237,50 @@ export async function POST(request: Request) {
 
       if (!pin || !/^\d{4}$/.test(String(pin).trim())) {
         return NextResponse.json(
-          { ok: false, error: "PIN must be exactly 4 digits (e.g. 1234)." },
+          { ok: false, error: "PIN must be exactly 4 digits (e.g. 4829)." },
           { status: 400 }
         );
       }
 
-      const newId = `user-${Date.now()}`;
+      const newId = `stu-${cleanCollegeId}`;
       const pinHash = hashPin(pin);
 
       if (supabase && schemaReady) {
-        const { data: existing } = await supabase
+        // 1. Check if this College ID is already registered
+        const { data: existingById } = await supabase
+          .from("users")
+          .select("id, name")
+          .eq("id", newId)
+          .maybeSingle();
+
+        if (existingById) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: `College ID "${cleanCollegeId}" is already registered (${existingById.name}). Switch to Sign In and enter your 4-digit PIN!`,
+            },
+            { status: 409 }
+          );
+        }
+
+        // 2. If another student with a DIFFERENT College ID has the exact same display name (e.g., two "Ahmed"s in the batch),
+        // append the last 4 digits of their College ID so they don't collide on name!
+        let finalDisplayName = cleanName;
+        const { data: existingByName } = await supabase
           .from("users")
           .select("id")
           .ilike("name", cleanName)
           .maybeSingle();
 
-        if (existing) {
-          return NextResponse.json(
-            {
-              ok: false,
-              error:
-                "That student name is already registered. Switch to Sign In and enter your 4-digit PIN!",
-            },
-            { status: 409 }
-          );
+        if (existingByName) {
+          finalDisplayName = `${cleanName} (#${cleanCollegeId.slice(-4)})`;
         }
 
         const { data: inserted, error } = await supabase
           .from("users")
           .insert({
             id: newId,
-            name: cleanName,
+            name: finalDisplayName,
             pin_hash: pinHash,
             avatar_color: avatarColor,
             quiet_hours_start: "01:00",
@@ -247,7 +296,7 @@ export async function POST(request: Request) {
           );
         }
 
-        // Auto-enroll new batch student in default courses
+        // Auto-enroll new batch student in existing shared courses
         const { data: allGroups } = await supabase.from("groups").select("id");
         if (allGroups && allGroups.length > 0) {
           await supabase.from("group_members").upsert(
@@ -261,6 +310,7 @@ export async function POST(request: Request) {
 
         const profile: UserProfile = {
           id: inserted.id,
+          collegeId: cleanCollegeId,
           displayName: inserted.name,
           avatarColor: inserted.avatar_color,
           quietHoursStart: inserted.quiet_hours_start,
@@ -278,8 +328,21 @@ export async function POST(request: Request) {
       }
 
       // Fallback memory registration
+      const mem = readServerDb();
+      const existingMem = mem.users.find((u) => u.id === newId);
+      if (existingMem) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `College ID "${cleanCollegeId}" is already registered (${existingMem.displayName}). Switch to Sign In!`,
+          },
+          { status: 409 }
+        );
+      }
+
       const profile: UserProfile = {
         id: newId,
+        collegeId: cleanCollegeId,
         displayName: cleanName,
         avatarColor,
         quietHoursStart: "01:00",
