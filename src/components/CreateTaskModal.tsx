@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   BellRing,
   Calendar,
@@ -27,6 +27,7 @@ interface CreateTaskModalProps {
     groupId: string | null;
     category: TaskCategory;
     dueInHours: number;
+    dueAt?: string;
     reminderIntervalMinutes: number;
     claimImmediately: boolean;
     file: File | null;
@@ -47,10 +48,19 @@ export default function CreateTaskModal({
     defaultSpaceId === null ? "personal" : "assignment"
   );
   const [dueInHours, setDueInHours] = useState<number>(24);
+  const [customDueLocal, setCustomDueLocal] = useState<string>("");
   const [reminderIntervalMinutes, setReminderIntervalMinutes] =
     useState<number>(120);
   const [claimImmediately, setClaimImmediately] = useState<boolean>(true);
   const [file, setFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      const target = defaultSpaceId || "personal";
+      setSpaceId(target);
+      setCategory(target === "personal" ? "personal" : "assignment");
+    }
+  }, [open, defaultSpaceId]);
 
   if (!open) return null;
 
@@ -64,13 +74,18 @@ export default function CreateTaskModal({
       description: description.trim(),
       groupId: isPersonal ? null : spaceId,
       category: isPersonal ? "personal" : category,
-      dueInHours,
+      dueInHours: dueInHours > 0 ? dueInHours : 24,
+      dueAt:
+        dueInHours === -1 && customDueLocal
+          ? new Date(customDueLocal).toISOString()
+          : undefined,
       reminderIntervalMinutes,
       claimImmediately: isPersonal ? true : claimImmediately,
       file,
     });
     setTitle("");
     setDescription("");
+    setCustomDueLocal("");
     setFile(null);
     onClose();
   };
@@ -134,7 +149,9 @@ export default function CreateTaskModal({
               {isPersonal ? (
                 <>
                   <Lock className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
-                  Isolated to your account via Row-Level Security.
+                  {groups.length === 0
+                    ? "Isolated to your Private Vault. (To post a group task, create/join a course in Shared Groups first.)"
+                    : "Isolated to your account via verified session cookie."}
                 </>
               ) : (
                 <>
@@ -230,9 +247,29 @@ export default function CreateTaskModal({
                 <option value={48}>In 2 Days (48 hours)</option>
                 <option value={72}>In 3 Days (72 hours)</option>
                 <option value={168}>Next Week (7 days)</option>
+                <option value={-1}>Pick Exact Date &amp; Time...</option>
               </select>
             </div>
           </div>
+
+          {dueInHours === -1 && (
+            <div>
+              <label
+                htmlFor="task-custom-due"
+                className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
+              >
+                Exact Deadline Date &amp; Time *
+              </label>
+              <input
+                id="task-custom-due"
+                type="datetime-local"
+                required
+                value={customDueLocal}
+                onChange={(e) => setCustomDueLocal(e.target.value)}
+                className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 font-mono-tabular text-sm text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
+              />
+            </div>
+          )}
 
           {/* 5. Reminder Interval & File Attachment */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

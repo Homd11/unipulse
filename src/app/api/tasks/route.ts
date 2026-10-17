@@ -22,6 +22,7 @@ export async function POST(request: Request) {
       groupId = null,
       category = "assignment",
       dueInHours = 24,
+      dueAt,
       reminderIntervalMinutes = 120,
       claimImmediately = true,
       attachment = null,
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
       groupId?: string | null;
       category?: TaskCategory;
       dueInHours?: number;
+      dueAt?: string;
       reminderIntervalMinutes?: number;
       claimImmediately?: boolean;
       attachment?: TaskAttachment | null;
@@ -45,9 +47,10 @@ export async function POST(request: Request) {
 
     const newTaskId = `task-${Date.now()}`;
     const nowIso = new Date().toISOString();
-    const dueIso = new Date(
-      Date.now() + (dueInHours || 24) * 3600_000
-    ).toISOString();
+    const dueIso =
+      dueAt && !isNaN(new Date(dueAt).getTime())
+        ? new Date(dueAt).toISOString()
+        : new Date(Date.now() + (dueInHours || 24) * 3600_000).toISOString();
     const nextPingIso = new Date(
       Date.now() + (reminderIntervalMinutes || 120) * 60_000
     ).toISOString();

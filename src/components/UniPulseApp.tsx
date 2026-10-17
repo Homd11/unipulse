@@ -560,6 +560,7 @@ export default function UniPulseApp() {
     groupId: string | null;
     category: TaskCategory;
     dueInHours: number;
+    dueAt?: string;
     reminderIntervalMinutes: number;
     claimImmediately: boolean;
     file: File | null;
@@ -590,6 +591,7 @@ export default function UniPulseApp() {
           groupId: input.groupId,
           category: input.category,
           dueInHours: input.dueInHours,
+          dueAt: input.dueAt,
           reminderIntervalMinutes: input.reminderIntervalMinutes,
           claimImmediately: input.claimImmediately,
           attachment: uploadedAttachment,
