@@ -296,18 +296,6 @@ export async function POST(request: Request) {
           );
         }
 
-        // Auto-enroll new batch student in existing shared courses
-        const { data: allGroups } = await supabase.from("groups").select("id");
-        if (allGroups && allGroups.length > 0) {
-          await supabase.from("group_members").upsert(
-            allGroups.map((g) => ({
-              group_id: g.id,
-              user_id: newId,
-            })),
-            { onConflict: "group_id,user_id" }
-          );
-        }
-
         const profile: UserProfile = {
           id: inserted.id,
           collegeId: cleanCollegeId,
@@ -352,10 +340,6 @@ export async function POST(request: Request) {
       writeServerDb((db) => ({
         ...db,
         users: [...db.users, { ...profile, pinHash }],
-        groups: db.groups.map((g) => ({
-          ...g,
-          memberIds: [...g.memberIds, newId],
-        })),
       }));
 
       await setSessionCookie({

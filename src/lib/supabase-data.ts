@@ -51,8 +51,11 @@ export async function ensureTaskFilesBucket(): Promise<void> {
 }
 
 /**
- * Fetches full relational state from Supabase tables (users, groups, tasks, task_statuses, task_comments, task_attachments).
- * Strictly filters Private Vault tasks (group_id IS NULL) to ONLY `authenticatedUserId`.
+ * Fetches relational state from Supabase tables (users, groups, tasks, task_statuses, task_comments, task_attachments).
+ * STRICT ACCESS CONTROL:
+ * - Unauthenticated users (`authenticatedUserId === null`) receive ZERO groups and ZERO tasks.
+ * - Authenticated users ONLY receive groups where they are the creator (`created_by`) or a joined member in `group_members`.
+ * - Authenticated users ONLY receive tasks belonging to their joined groups OR their own Private Vault (`group_id IS NULL`).
  */
 export async function fetchRelationalState(
   authenticatedUserId: string | null
@@ -64,13 +67,26 @@ export async function fetchRelationalState(
 }> {
   const supabase = getServiceSupabase();
   if (!supabase) {
+    const allowedGroups = authenticatedUserId
+      ? INITIAL_GROUPS.filter(
+          (g) =>
+            g.createdBy === authenticatedUserId ||
+            g.memberIds.includes(authenticatedUserId)
+        )
+      : [];
+    const allowedGroupIds = new Set(allowedGroups.map((g) => g.id));
+
     return {
       schemaReady: false,
       users: DEMO_USERS,
-      groups: INITIAL_GROUPS,
-      tasks: INITIAL_TASKS.filter(
-        (t) => t.groupId !== null || t.createdBy === authenticatedUserId
-      ),
+      groups: allowedGroups,
+      tasks: authenticatedUserId
+        ? INITIAL_TASKS.filter(
+            (t) =>
+              (t.groupId === null && t.createdBy === authenticatedUserId) ||
+              (t.groupId !== null && allowedGroupIds.has(t.groupId))
+          )
+        : [],
     };
   }
 
@@ -80,16 +96,11 @@ export async function fetchRelationalState(
     .order("created_at", { ascending: true });
 
   if (userErr || !userRows) {
-    // Relational tables not yet created via supabase/schema.sql
     return {
       schemaReady: false,
       users: DEMO_USERS,
-      groups: INITIAL_GROUPS,
-      tasks: INITIAL_TASKS.filter(
-        (t) =>
-          t.groupId !== null ||
-          (authenticatedUserId && t.createdBy === authenticatedUserId)
-      ),
+      groups: [],
+      tasks: [],
     };
   }
 
@@ -101,6 +112,16 @@ export async function fetchRelationalState(
     quietHoursStart: u.quiet_hours_start || "01:00",
     quietHoursEnd: u.quiet_hours_end || "08:00",
   }));
+
+  // If the visitor is not signed in yet, do NOT expose any groups, invite codes, or tasks!
+  if (!authenticatedUserId) {
+    return {
+      schemaReady: true,
+      users,
+      groups: [],
+      tasks: [],
+    };
+  }
 
   const userMap = new Map<string, UserProfile>();
   for (const u of users) userMap.set(u.id, u);
@@ -129,26 +150,40 @@ export async function fetchRelationalState(
     ]);
 
   const memberRows = membersRes.data || [];
-  const groups: StudyGroup[] = (groupsRes.data || []).map((g) => ({
-    id: g.id,
-    name: g.name,
-    courseCode: g.course_code,
-    inviteCode: g.invite_code,
-    createdBy: g.created_by,
-    memberIds: memberRows
+  const allGroups: StudyGroup[] = (groupsRes.data || []).map((g) => {
+    const memberIds = memberRows
       .filter((m) => m.group_id === g.id)
-      .map((m) => m.user_id),
-  }));
+      .map((m) => m.user_id);
+    if (!memberIds.includes(g.created_by)) {
+      memberIds.push(g.created_by);
+    }
+    return {
+      id: g.id,
+      name: g.name,
+      courseCode: g.course_code,
+      inviteCode: g.invite_code,
+      createdBy: g.created_by,
+      memberIds,
+    };
+  });
+
+  // Strictly filter groups to ONLY those created by or joined by `authenticatedUserId`
+  const groups = allGroups.filter(
+    (g) =>
+      g.createdBy === authenticatedUserId ||
+      g.memberIds.includes(authenticatedUserId)
+  );
+  const allowedGroupIds = new Set(groups.map((g) => g.id));
 
   const statusRows = statusesRes.data || [];
   const commentRows = commentsRes.data || [];
   const attachRows = attachRes.data || [];
 
-  // Filter tasks: Shared tasks (group_id != null) OR Private Vault tasks owned by authenticatedUserId
+  // Filter tasks: ONLY tasks in groups the user has joined OR Private Vault tasks owned by authenticatedUserId
   const visibleTaskRows = (tasksRes.data || []).filter(
     (t) =>
-      t.group_id !== null ||
-      (authenticatedUserId && t.created_by === authenticatedUserId)
+      (t.group_id === null && t.created_by === authenticatedUserId) ||
+      (t.group_id !== null && allowedGroupIds.has(t.group_id))
   );
 
   const tasks: TaskItem[] = visibleTaskRows.map((t) => {

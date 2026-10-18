@@ -42,16 +42,28 @@ export async function GET() {
     ? users.find((u) => u.id === session.userId) || null
     : null;
 
-  const visibleTasks = mem.tasks.filter(
-    (t) => t.groupId !== null || (session && t.createdBy === session.userId)
-  );
+  const allowedGroups = session
+    ? mem.groups.filter(
+        (g) =>
+          g.createdBy === session.userId || g.memberIds.includes(session.userId)
+      )
+    : [];
+  const allowedGroupIds = new Set(allowedGroups.map((g) => g.id));
+
+  const visibleTasks = session
+    ? mem.tasks.filter(
+        (t) =>
+          (t.groupId === null && t.createdBy === session.userId) ||
+          (t.groupId !== null && allowedGroupIds.has(t.groupId))
+      )
+    : [];
 
   return NextResponse.json({
     ok: true,
     schemaReady: false,
     authenticatedUser,
     users,
-    groups: mem.groups,
+    groups: allowedGroups,
     tasks: visibleTasks,
     updatedAt: mem.updatedAt,
   });

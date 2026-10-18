@@ -327,6 +327,9 @@ export default function UniPulseApp() {
       body: JSON.stringify({ action: "LOGOUT" }),
     });
     setAuthenticatedUser(null);
+    setGroups([]);
+    setTasks([]);
+    setSelectedGroupId("all");
     await fetchServerState();
   };
 
@@ -1337,7 +1340,30 @@ export default function UniPulseApp() {
                 </div>
               )}
 
-              {sharedTasks.length === 0 ? (
+              {groups.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] p-10 text-center space-y-3">
+                  <KeyRound
+                    className="w-8 h-8 text-[#0D9488] mx-auto"
+                    aria-hidden="true"
+                  />
+                  <h3 className="font-display font-bold text-base">
+                    You haven&apos;t joined any course groups yet
+                  </h3>
+                  <p className="text-xs text-[var(--text-secondary)] max-w-sm mx-auto">
+                    Course groups are private to members. Enter an <strong>Invite Code</strong> shared by a classmate or create a new course space.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (requireSignedIn()) setShowGroupModal(true);
+                    }}
+                    className="min-h-[40px] inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold cursor-pointer"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" aria-hidden="true" />
+                    Join with Invite Code / Create Group
+                  </button>
+                </div>
+              ) : sharedTasks.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] p-10 text-center space-y-2.5">
                   <FolderKanban
                     className="w-8 h-8 text-[var(--text-muted)] mx-auto"
@@ -1347,7 +1373,7 @@ export default function UniPulseApp() {
                     No tasks in this course group yet
                   </h3>
                   <p className="text-xs text-[var(--text-secondary)] max-w-sm mx-auto">
-                    Post an assignment, quiz, or lab resource so the whole batch can track it.
+                    Post an assignment, quiz, or lab resource so group members can track it.
                   </p>
                 </div>
               ) : (
