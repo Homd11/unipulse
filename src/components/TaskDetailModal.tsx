@@ -24,6 +24,7 @@ import {
   TaskItem,
   UserProfile,
 } from "@/types/app";
+import { useLanguage } from "@/lib/i18n";
 
 interface TaskDetailModalProps {
   task: TaskItem | null;
@@ -49,10 +50,10 @@ interface TaskDetailModalProps {
 }
 
 const INTERVAL_OPTIONS = [
-  { label: "30m", value: 30 },
-  { label: "1h", value: 60 },
-  { label: "2h", value: 120 },
-  { label: "4h", value: 240 },
+  { labelEn: "30m", labelAr: "٣٠ د", value: 30 },
+  { labelEn: "1h", labelAr: "١ س", value: 60 },
+  { labelEn: "2h", labelAr: "٢ س", value: 120 },
+  { labelEn: "4h", labelAr: "٤ س", value: 240 },
 ];
 
 function formatFileSize(bytes: number): string {
@@ -85,6 +86,7 @@ export default function TaskDetailModal({
   onEditTask,
   onDeleteTask,
 }: TaskDetailModalProps) {
+  const { isAr } = useLanguage();
   const [commentText, setCommentText] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -174,7 +176,7 @@ export default function TaskDetailModal({
               {task.groupId === null ? (
                 <span className="inline-flex items-center gap-1 font-mono-tabular text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#111315] text-white dark:bg-white dark:text-[#111315]">
                   <Lock className="w-3 h-3" aria-hidden="true" />
-                  PRIVATE VAULT
+                  {isAr ? "خزنتي الخاصة" : "PRIVATE VAULT"}
                 </span>
               ) : (
                 <span className="font-mono-tabular text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--bg-subtle)] text-[var(--text-primary)] border border-[var(--border-strong)]">
@@ -182,7 +184,9 @@ export default function TaskDetailModal({
                 </span>
               )}
               <span className="font-mono-tabular text-xs text-[var(--text-muted)]">
-                BY {task.creatorName.toUpperCase()}
+                {isAr
+                  ? `نزّله: ${task.creatorName}`
+                  : `BY ${task.creatorName.toUpperCase()}`}
               </span>
             </div>
             <h2
@@ -207,7 +211,15 @@ export default function TaskDetailModal({
                 }`}
               >
                 <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>{isEditing ? "Cancel" : "Edit"}</span>
+                <span>
+                  {isEditing
+                    ? isAr
+                      ? "إلغاء"
+                      : "Cancel"
+                    : isAr
+                    ? "تعديل"
+                    : "Edit"}
+                </span>
               </button>
             )}
             {canManageTask && onDeleteTask && (
@@ -245,16 +257,18 @@ export default function TaskDetailModal({
             >
               <div className="flex items-center justify-between">
                 <span className="font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[#0D9488]">
-                  EDIT TASK &amp; DEADLINE
+                  {isAr ? "تعديل التاسك وميعاد التسليم" : "EDIT TASK & DEADLINE"}
                 </span>
                 <span className="font-mono-tabular text-[10px] text-[var(--text-muted)]">
-                  CHANGES SYNC LIVE TO BATCH
+                  {isAr
+                    ? "التعديل بيسمّع عند الدفعة فوراً"
+                    : "CHANGES SYNC LIVE TO BATCH"}
                 </span>
               </div>
 
               <div>
                 <label className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1">
-                  Title *
+                  {isAr ? "العنوان *" : "Title *"}
                 </label>
                 <input
                   type="text"
@@ -267,7 +281,7 @@ export default function TaskDetailModal({
 
               <div>
                 <label className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1">
-                  Description / Instructions
+                  {isAr ? "التفاصيل / التعليمات" : "Description / Instructions"}
                 </label>
                 <textarea
                   rows={3}
@@ -280,7 +294,7 @@ export default function TaskDetailModal({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1">
-                    Category
+                    {isAr ? "النوع" : "Category"}
                   </label>
                   <select
                     value={editCategory}
@@ -289,17 +303,25 @@ export default function TaskDetailModal({
                     }
                     className="w-full min-h-[40px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
                   >
-                    <option value="assignment">Assignment</option>
-                    <option value="quiz">Quiz</option>
-                    <option value="project">Project</option>
-                    <option value="exam">Exam</option>
-                    <option value="personal">Personal</option>
+                    <option value="assignment">
+                      {isAr ? "تاسك / شيت" : "Assignment"}
+                    </option>
+                    <option value="quiz">{isAr ? "كويز" : "Quiz"}</option>
+                    <option value="project">
+                      {isAr ? "بروجيكت" : "Project"}
+                    </option>
+                    <option value="exam">
+                      {isAr ? "امتحان / ميد" : "Exam"}
+                    </option>
+                    <option value="personal">
+                      {isAr ? "شخصي" : "Personal"}
+                    </option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1">
-                    Deadline (Due At)
+                    {isAr ? "ميعاد التسليم (الديدلاين)" : "Deadline (Due At)"}
                   </label>
                   <input
                     type="datetime-local"
@@ -311,7 +333,7 @@ export default function TaskDetailModal({
 
                 <div>
                   <label className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1">
-                    Default Ping Interval
+                    {isAr ? "تكرار التذكير الافتراضي" : "Default Ping Interval"}
                   </label>
                   <select
                     value={editDefaultInterval}
@@ -320,10 +342,18 @@ export default function TaskDetailModal({
                     }
                     className="w-full min-h-[40px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 font-mono-tabular text-xs font-bold text-[var(--text-primary)]"
                   >
-                    <option value={30}>Every 30 mins</option>
-                    <option value={60}>Every 1 hour</option>
-                    <option value={120}>Every 2 hours</option>
-                    <option value={240}>Every 4 hours</option>
+                    <option value={30}>
+                      {isAr ? "كل نص ساعة" : "Every 30 mins"}
+                    </option>
+                    <option value={60}>
+                      {isAr ? "كل ساعة" : "Every 1 hour"}
+                    </option>
+                    <option value={120}>
+                      {isAr ? "كل ساعتين" : "Every 2 hours"}
+                    </option>
+                    <option value={240}>
+                      {isAr ? "كل ٤ ساعات" : "Every 4 hours"}
+                    </option>
                   </select>
                 </div>
               </div>
@@ -334,14 +364,20 @@ export default function TaskDetailModal({
                   onClick={() => setIsEditing(false)}
                   className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs font-bold text-[var(--text-secondary)] cursor-pointer"
                 >
-                  Cancel
+                  {isAr ? "إلغاء" : "Cancel"}
                 </button>
                 <button
                   type="submit"
                   disabled={savingEdit}
                   className="min-h-[38px] px-4 py-1.5 rounded-lg bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold cursor-pointer"
                 >
-                  {savingEdit ? "Saving..." : "Save Task Changes"}
+                  {savingEdit
+                    ? isAr
+                      ? "بيحفظ..."
+                      : "Saving..."
+                    : isAr
+                    ? "حفظ التعديلات"
+                    : "Save Task Changes"}
                 </button>
               </div>
             </form>
@@ -359,13 +395,19 @@ export default function TaskDetailModal({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[#EA580C]">
-                  2-HOUR REMINDER PROTOCOL
+                  {isAr ? "نظام الزنّ والتذكير كل ساعتين" : "2-HOUR REMINDER PROTOCOL"}
                 </p>
                 <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-0.5">
                   {!isOnMe
-                    ? "Unclaimed. Opt in to receive background push pings until finished."
+                    ? isAr
+                      ? "مش مستلمه لسه. دوس «عليّا أنا» عشان يبعتلك تنبيهات لحد ما تخلّصه."
+                      : "Unclaimed. Opt in to receive background push pings until finished."
                     : isDoneForMe
-                    ? "Completed by you. Your background reminders are halted."
+                    ? isAr
+                      ? "خلّصته خلاص! التذكير وقف."
+                      : "Completed by you. Your background reminders are halted."
+                    : isAr
+                    ? `شغّال — بيفكّرك كل ${myInterval} دقيقة لحد ما تدوس خلّصت خلاص.`
                     : `Armed — pinging you every ${myInterval} minutes until marked Done.`}
                 </p>
               </div>
@@ -382,7 +424,7 @@ export default function TaskDetailModal({
                       className="w-3.5 h-3.5 text-[#EA580C]"
                       aria-hidden="true"
                     />
-                    Claim &ldquo;On Me&rdquo;
+                    {isAr ? "عليّا أنا" : "Claim “On Me”"}
                   </button>
                 ) : (
                   <button
@@ -395,7 +437,13 @@ export default function TaskDetailModal({
                     }`}
                   >
                     <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
-                    {isDoneForMe ? "Done (Reopen)" : "Mark Done"}
+                    {isDoneForMe
+                      ? isAr
+                        ? "خلّصت (افتحه تاني)"
+                        : "Done (Reopen)"
+                      : isAr
+                      ? "خلّصت خلاص"
+                      : "Mark Done"}
                   </button>
                 )}
               </div>
@@ -406,7 +454,9 @@ export default function TaskDetailModal({
               <div className="pt-3 border-t border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2">
                 <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                   <Clock className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
-                  MY PING FREQUENCY FOR THIS TASK:
+                  {isAr
+                    ? "فكّرني بالتاسك ده كل:"
+                    : "MY PING FREQUENCY FOR THIS TASK:"}
                 </span>
                 <div className="flex items-center gap-1.5">
                   {INTERVAL_OPTIONS.map((opt) => (
@@ -420,7 +470,7 @@ export default function TaskDetailModal({
                           : "bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)]"
                       }`}
                     >
-                      {opt.label}
+                      {isAr ? opt.labelAr : opt.labelEn}
                     </button>
                   ))}
                 </div>
@@ -433,19 +483,24 @@ export default function TaskDetailModal({
             <div className="space-y-2.5">
               <h4 className="font-mono-tabular text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-1.5">
                 <Users className="w-4 h-4 text-[#0D9488]" aria-hidden="true" />
-                SOCIAL ACCOUNTABILITY ({workingList.length} ON IT ·{" "}
-                {doneList.length} DONE)
+                {isAr
+                  ? `مين من الدفعة شغال عليه (${workingList.length} شغالين · ${doneList.length} خلّصوا)`
+                  : `SOCIAL ACCOUNTABILITY (${workingList.length} ON IT · ${doneList.length} DONE)`}
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="p-3.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)]">
                   <div className="flex items-center gap-1.5 font-mono-tabular text-xs font-bold text-[#EA580C] mb-2.5">
                     <span className="w-2 h-2 rounded-full bg-[#EA580C]" />
-                    WORKING ON IT ({workingList.length})
+                    {isAr
+                      ? `شغالين عليه دلوقتي (${workingList.length})`
+                      : `WORKING ON IT (${workingList.length})`}
                   </div>
                   {workingList.length === 0 ? (
                     <p className="text-xs text-[var(--text-muted)]">
-                      No active members on this task right now.
+                      {isAr
+                        ? "محدش شغال عليه دلوقتي."
+                        : "No active members on this task right now."}
                     </p>
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
@@ -471,11 +526,15 @@ export default function TaskDetailModal({
                       className="w-3.5 h-3.5 stroke-[2.5]"
                       aria-hidden="true"
                     />
-                    COMPLETED ({doneList.length})
+                    {isAr
+                      ? `خلّصوا خلاص (${doneList.length})`
+                      : `COMPLETED (${doneList.length})`}
                   </div>
                   {doneList.length === 0 ? (
                     <p className="text-xs text-[var(--text-muted)]">
-                      Nobody has completed this yet.
+                      {isAr
+                        ? "محدش خلّصه لسه."
+                        : "Nobody has completed this yet."}
                     </p>
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
@@ -506,7 +565,9 @@ export default function TaskDetailModal({
                   className="w-4 h-4 text-[#0D9488]"
                   aria-hidden="true"
                 />
-                FILES &amp; RESOURCES ({task.attachments.length})
+                {isAr
+                  ? `الملفات والشيتات (${task.attachments.length})`
+                  : `FILES & RESOURCES (${task.attachments.length})`}
               </h4>
               <input
                 ref={fileInputRef}
@@ -523,13 +584,15 @@ export default function TaskDetailModal({
                   className="w-3.5 h-3.5 text-[#0D9488]"
                   aria-hidden="true"
                 />
-                Attach File
+                {isAr ? "ارفع ملف" : "Attach File"}
               </button>
             </div>
 
             {task.attachments.length === 0 ? (
               <div className="p-4 rounded-xl border border-dashed border-[var(--border-strong)] text-center text-xs text-[var(--text-muted)]">
-                No files attached yet. Upload PDF specs, slides, or starter code.
+                {isAr
+                  ? "مفيش ملفات مرفوعة لسه. ارفع الـ PDF أو السلايدز أو الكود هنا."
+                  : "No files attached yet. Upload PDF specs, slides, or starter code."}
               </div>
             ) : (
               <div className="space-y-2">
@@ -559,7 +622,7 @@ export default function TaskDetailModal({
                       className="min-h-[34px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] shrink-0"
                     >
                       <Download className="w-3.5 h-3.5" aria-hidden="true" />
-                      Download
+                      {isAr ? "تحميل" : "Download"}
                     </a>
                   </div>
                 ))}
@@ -574,12 +637,16 @@ export default function TaskDetailModal({
                 className="w-4 h-4 text-[#0D9488]"
                 aria-hidden="true"
               />
-              DISCUSSION THREAD ({task.comments.length})
+              {isAr
+                ? `نقاش وكومنتات التاسك (${task.comments.length})`
+                : `DISCUSSION THREAD (${task.comments.length})`}
             </h4>
 
             {task.comments.length === 0 ? (
               <p className="text-xs text-[var(--text-muted)]">
-                No comments yet. Clarify instructions or share hints here so they don&apos;t get lost in chat.
+                {isAr
+                  ? "مفيش كومنتات لسه. اكتب أي توضيح أو لينك هنا عشان ميتوهش في شات الواتساب."
+                  : "No comments yet. Clarify instructions or share hints here so they don't get lost in chat."}
               </p>
             ) : (
               <div className="space-y-2.5">
@@ -607,7 +674,7 @@ export default function TaskDetailModal({
                         })}
                       </span>
                     </div>
-                    <p className="text-xs sm:text-sm text-[var(--text-secondary)] pl-7 leading-relaxed">
+                    <p className="text-xs sm:text-sm text-[var(--text-secondary)] ps-7 leading-relaxed">
                       {com.content}
                     </p>
                   </div>
@@ -626,7 +693,11 @@ export default function TaskDetailModal({
             type="text"
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
-            placeholder="Add a comment, clarification, or link..."
+            placeholder={
+              isAr
+                ? "اكتب كومنت، سؤال، أو لينك مهم..."
+                : "Add a comment, clarification, or link..."
+            }
             className="flex-1 min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
           />
           <button

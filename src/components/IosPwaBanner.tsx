@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { PlatformPushState } from "@/lib/push-client";
+import { useLanguage } from "@/lib/i18n";
 
 interface IosPwaBannerProps {
   platformState: PlatformPushState;
@@ -32,6 +33,7 @@ export default function IosPwaBanner({
   pushLoading,
   pushFeedback,
 }: IosPwaBannerProps) {
+  const { isAr } = useLanguage();
   const [showGuideModal, setShowGuideModal] = useState(false);
 
   const isUninstalledIos =
@@ -52,24 +54,56 @@ export default function IosPwaBanner({
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono-tabular text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#EA580C]/20 text-[#FB923C] border border-[#EA580C]/40">
-                    iOS Safari Detected
+                    {isAr ? "فاتح من سفاري آيفون" : "iOS Safari Detected"}
                   </span>
                   <span className="text-xs sm:text-sm font-semibold text-white">
-                    Tap Share &rarr; Add to Home Screen to receive 2-hour task reminders on iPhone.
+                    {isAr
+                      ? "دوس Share وبعدين Add to Home Screen عشان يوصلك زنّ التذكير كل ساعتين ع الآيفون."
+                      : "Tap Share → Add to Home Screen to receive 2-hour task reminders on iPhone."}
                   </span>
                 </div>
                 <p className="text-xs text-[#9CA3AF] mt-0.5 leading-relaxed">
-                  iOS 16.4+ requires Home Screen installation for background Web Push: tap{" "}
-                  <span className="inline-flex items-center gap-1 font-semibold text-white">
-                    <Share className="w-3 h-3 inline text-[#14B8A6]" aria-hidden="true" />{" "}
-                    Share
-                  </span>{" "}
-                  then{" "}
-                  <span className="inline-flex items-center gap-1 font-semibold text-white">
-                    <PlusSquare className="w-3 h-3 inline text-[#14B8A6]" aria-hidden="true" />{" "}
-                    Add to Home Screen
-                  </span>
-                  .
+                  {isAr ? (
+                    <>
+                      عشان إشعارات الآيفون تشتغل في الخلفية: دوس على{" "}
+                      <span className="inline-flex items-center gap-1 font-semibold text-white">
+                        <Share
+                          className="w-3 h-3 inline text-[#14B8A6]"
+                          aria-hidden="true"
+                        />{" "}
+                        Share
+                      </span>{" "}
+                      وبعدين اختار{" "}
+                      <span className="inline-flex items-center gap-1 font-semibold text-white">
+                        <PlusSquare
+                          className="w-3 h-3 inline text-[#14B8A6]"
+                          aria-hidden="true"
+                        />{" "}
+                        Add to Home Screen
+                      </span>
+                      .
+                    </>
+                  ) : (
+                    <>
+                      iOS 16.4+ requires Home Screen installation for background Web Push: tap{" "}
+                      <span className="inline-flex items-center gap-1 font-semibold text-white">
+                        <Share
+                          className="w-3 h-3 inline text-[#14B8A6]"
+                          aria-hidden="true"
+                        />{" "}
+                        Share
+                      </span>{" "}
+                      then{" "}
+                      <span className="inline-flex items-center gap-1 font-semibold text-white">
+                        <PlusSquare
+                          className="w-3 h-3 inline text-[#14B8A6]"
+                          aria-hidden="true"
+                        />{" "}
+                        Add to Home Screen
+                      </span>
+                      .
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -80,7 +114,7 @@ export default function IosPwaBanner({
                 onClick={() => setShowGuideModal(true)}
                 className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-[#F6F5F0] hover:bg-white text-[#111315] font-semibold text-xs transition cursor-pointer active:scale-[0.98]"
               >
-                Install Guide
+                {isAr ? "إزاي أثبّته؟" : "Install Guide"}
               </button>
               {simulateIosSafari && (
                 <button
@@ -104,12 +138,12 @@ export default function IosPwaBanner({
             {isPushGranted ? (
               <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[11px] font-semibold text-[#059669] dark:text-[#10B981] bg-[#059669]/10 border border-[#059669]/25 px-2.5 py-1 rounded-md">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#059669] dark:bg-[#10B981]" />
-                PUSH ENGINE: ARMED (2H LOOP)
+                {isAr ? "التنبيهات: شغّالة (كل ساعتين)" : "PUSH ENGINE: ARMED (2H LOOP)"}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[11px] font-semibold text-[#EA580C] bg-[#EA580C]/10 border border-[#EA580C]/25 px-2.5 py-1 rounded-md">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#EA580C] animate-ping" />
-                PUSH ENGINE: STANDBY
+                {isAr ? "التنبيهات: مستنية تفعيلك" : "PUSH ENGINE: STANDBY"}
               </span>
             )}
 
@@ -129,7 +163,13 @@ export default function IosPwaBanner({
                 className="min-h-[34px] inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-semibold transition cursor-pointer active:scale-[0.98] disabled:opacity-50"
               >
                 <BellRing className="w-3.5 h-3.5" aria-hidden="true" />
-                {pushLoading ? "Connecting..." : "Enable 2h Alerts"}
+                {pushLoading
+                  ? isAr
+                    ? "بيوصّل..."
+                    : "Connecting..."
+                  : isAr
+                  ? "شغّل تنبيه كل ساعتين"
+                  : "Enable 2h Alerts"}
               </button>
             ) : (
               <button
@@ -139,7 +179,7 @@ export default function IosPwaBanner({
                 className="min-h-[34px] inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)] text-xs font-semibold transition cursor-pointer active:scale-[0.98]"
               >
                 <Radio className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
-                Test Push
+                {isAr ? "جرّب إشعار" : "Test Push"}
               </button>
             )}
 
@@ -153,7 +193,13 @@ export default function IosPwaBanner({
                     : "bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
-                {simulateIosSafari ? "iOS Banner: ON" : "iOS Guide"}
+                {simulateIosSafari
+                  ? isAr
+                    ? "شرح الآيفون: شغّال"
+                    : "iOS Banner: ON"
+                  : isAr
+                  ? "شرح الآيفون"
+                  : "iOS Guide"}
               </button>
             )}
           </div>
@@ -172,13 +218,15 @@ export default function IosPwaBanner({
             <div className="flex items-start justify-between pb-4 border-b border-[var(--border-subtle)]">
               <div>
                 <span className="font-mono-tabular text-[10px] font-bold uppercase tracking-widest text-[#EA580C]">
-                  iOS 16.4+ Setup Protocol
+                  {isAr ? "خطوات تشغيل إشعارات الآيفون" : "iOS 16.4+ Setup Protocol"}
                 </span>
                 <h3
                   id="ios-guide-title"
                   className="font-display font-bold text-lg mt-0.5"
                 >
-                  Install UniPulse to Home Screen
+                  {isAr
+                    ? "ضيف UniPulse على الشاشة الرئيسية"
+                    : "Install UniPulse to Home Screen"}
                 </h3>
               </div>
               <button
@@ -198,11 +246,13 @@ export default function IosPwaBanner({
                 </span>
                 <div>
                   <p className="text-sm font-semibold flex items-center gap-1.5">
-                    Tap Safari Share{" "}
+                    {isAr ? "دوس على زرار Share في سفاري" : "Tap Safari Share"}{" "}
                     <Share className="w-4 h-4 text-[#0D9488]" aria-hidden="true" />
                   </p>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
-                    In the bottom Safari bar on your iPhone, tap the Share icon.
+                    {isAr
+                      ? "من الشريط اللي تحت في متصفح Safari على الآيفون، دوس على علامة المشاركة."
+                      : "In the bottom Safari bar on your iPhone, tap the Share icon."}
                   </p>
                 </div>
               </div>
@@ -213,15 +263,18 @@ export default function IosPwaBanner({
                 </span>
                 <div>
                   <p className="text-sm font-semibold flex items-center gap-1.5">
-                    Select &ldquo;Add to Home Screen&rdquo;{" "}
-                    <PlusSquare className="w-4 h-4 text-[#0D9488]" aria-hidden="true" />
+                    {isAr
+                      ? "اختار Add to Home Screen"
+                      : "Select “Add to Home Screen”"}{" "}
+                    <PlusSquare
+                      className="w-4 h-4 text-[#0D9488]"
+                      aria-hidden="true"
+                    />
                   </p>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
-                    Scroll down the share sheet and tap{" "}
-                    <strong className="text-[var(--text-primary)]">
-                      Add to Home Screen
-                    </strong>
-                    , then confirm <strong className="text-[var(--text-primary)]">Add</strong>.
+                    {isAr
+                      ? "انزل تحت شوية في القايمة ودوس على إضافة للشاشة الرئيسية وبعدين Add."
+                      : "Scroll down the share sheet and tap Add to Home Screen, then confirm Add."}
                   </p>
                 </div>
               </div>
@@ -232,15 +285,15 @@ export default function IosPwaBanner({
                 </span>
                 <div>
                   <p className="text-sm font-semibold flex items-center gap-1.5">
-                    Open App &amp; Claim &ldquo;On Me&rdquo;{" "}
+                    {isAr
+                      ? "افتح الأبلكيشن ودوس «عليّا أنا»"
+                      : "Open App & Claim “On Me”"}{" "}
                     <Bell className="w-4 h-4 text-[#EA580C]" aria-hidden="true" />
                   </p>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
-                    Open UniPulse from your Home Screen and tap{" "}
-                    <strong className="text-[var(--text-primary)]">
-                      Enable 2h Alerts
-                    </strong>{" "}
-                    or claim any task to start background notifications.
+                    {isAr
+                      ? "افتح UniPulse من الشاشة الرئيسية ودوس «شغّل تنبيه كل ساعتين» أو استلم أي تاسك."
+                      : "Open UniPulse from your Home Screen and tap Enable 2h Alerts or claim any task to start background notifications."}
                   </p>
                 </div>
               </div>
@@ -252,7 +305,7 @@ export default function IosPwaBanner({
               className="w-full min-h-[44px] py-2.5 rounded-xl bg-[#0D9488] hover:bg-[#0F766E] text-white font-semibold text-sm flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-[0.99]"
             >
               <Check className="w-4 h-4" aria-hidden="true" />
-              Understood
+              {isAr ? "تمام فهمت" : "Understood"}
             </button>
           </div>
         </div>

@@ -46,6 +46,15 @@ body {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+[dir="rtl"],
+[dir="rtl"] body,
+[dir="rtl"] h1,
+[dir="rtl"] h2,
+[dir="rtl"] h3,
+[dir="rtl"] .font-display {
+  font-family: var(--font-arabic), var(--font-sans), sans-serif;
+}
+
 h1,
 h2,
 h3,
@@ -54,7 +63,7 @@ h3,
 }
 
 .font-mono-tabular {
-  font-family: var(--font-mono), monospace;
+  font-family: var(--font-mono), var(--font-arabic), monospace;
   font-variant-numeric: tabular-nums;
 }
 

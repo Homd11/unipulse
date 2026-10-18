@@ -21,6 +21,12 @@ import {
   TaskItem,
   UserProfile,
 } from "@/types/app";
+import {
+  getCategoryLabel,
+  getIntervalOptionLabel,
+  Language,
+  useLanguage,
+} from "@/lib/i18n";
 
 interface TaskCardProps {
   task: TaskItem;
@@ -33,44 +39,35 @@ interface TaskCardProps {
   onOpenDetail: (taskId: string) => void;
 }
 
-const CATEGORY_BADGE: Record<
-  TaskCategory,
-  { label: string; className: string }
-> = {
-  assignment: {
-    label: "ASSIGNMENT",
-    className:
-      "bg-[#0D9488]/10 text-[#0F766E] dark:text-[#2DD4BF] border-[#0D9488]/25",
-  },
-  quiz: {
-    label: "QUIZ",
-    className:
-      "bg-[#EA580C]/10 text-[#C2410C] dark:text-[#FB923C] border-[#EA580C]/25",
-  },
-  exam: {
-    label: "EXAM",
-    className:
-      "bg-[#DC2626]/10 text-[#B91C1C] dark:text-[#F87171] border-[#DC2626]/25",
-  },
-  project: {
-    label: "PROJECT",
-    className:
-      "bg-[#0284C7]/10 text-[#0369A1] dark:text-[#38BDF8] border-[#0284C7]/25",
-  },
-  personal: {
-    label: "PERSONAL",
-    className:
-      "bg-[var(--bg-subtle)] text-[var(--text-secondary)] border-[var(--border-strong)]",
-  },
+const CATEGORY_CLASS: Record<TaskCategory, string> = {
+  assignment:
+    "bg-[#0D9488]/10 text-[#0F766E] dark:text-[#2DD4BF] border-[#0D9488]/25",
+  quiz:
+    "bg-[#EA580C]/10 text-[#C2410C] dark:text-[#FB923C] border-[#EA580C]/25",
+  exam:
+    "bg-[#DC2626]/10 text-[#B91C1C] dark:text-[#F87171] border-[#DC2626]/25",
+  project:
+    "bg-[#0284C7]/10 text-[#0369A1] dark:text-[#38BDF8] border-[#0284C7]/25",
+  personal:
+    "bg-[var(--bg-subtle)] text-[var(--text-secondary)] border-[var(--border-strong)]",
 };
 
-function formatTimeRemaining(isoDate: string): {
+function formatTimeRemaining(
+  isoDate: string,
+  lang: Language
+): {
   label: string;
   urgent: boolean;
 } {
   const diffMs = new Date(isoDate).getTime() - Date.now();
   if (diffMs <= 0) {
     const overdueHrs = Math.abs(Math.round(diffMs / 3600_000));
+    if (lang === "ar") {
+      return {
+        label: overdueHrs < 1 ? "التسليم دلوقتي!" : `متأخر من ${overdueHrs} س`,
+        urgent: true,
+      };
+    }
     return {
       label: overdueHrs < 1 ? "DUE NOW" : `OVERDUE ${overdueHrs}H`,
       urgent: true,
@@ -80,6 +77,15 @@ function formatTimeRemaining(isoDate: string): {
   const hours = Math.floor(totalMins / 60);
   const mins = totalMins % 60;
   if (hours < 24) {
+    if (lang === "ar") {
+      return {
+        label:
+          hours > 0
+            ? `فاضل ${hours} س و${mins} د`
+            : `فاضل ${mins} دقيقة`,
+        urgent: hours < 14,
+      };
+    }
     return {
       label: hours > 0 ? `DUE ${hours}H ${mins}M` : `DUE ${mins}M`,
       urgent: hours < 14,
@@ -87,24 +93,46 @@ function formatTimeRemaining(isoDate: string): {
   }
   const days = Math.floor(hours / 24);
   const remHours = hours % 24;
+  if (lang === "ar") {
+    return {
+      label: `فاضل ${days} يوم و${remHours} س`,
+      urgent: false,
+    };
+  }
   return {
     label: `DUE ${days}D ${remHours}H`,
     urgent: false,
   };
 }
 
-function formatNextPing(isoDate: string | null, intervalMins: number): string {
+function formatNextPing(
+  isoDate: string | null,
+  intervalMins: number,
+  lang: Language
+): string {
   if (!isoDate) {
+    if (lang === "ar") {
+      return intervalMins >= 60
+        ? `تذكير كل ${intervalMins / 60} س`
+        : `تذكير كل ${intervalMins} د`;
+    }
     return intervalMins >= 60
       ? `EVERY ${intervalMins / 60}H`
       : `EVERY ${intervalMins}M`;
   }
   const diffMs = new Date(isoDate).getTime() - Date.now();
-  if (diffMs <= 0) return "PING NOW";
+  if (diffMs <= 0) return lang === "ar" ? "رنّة دلوقتي" : "PING NOW";
   const mins = Math.ceil(diffMs / 60_000);
-  if (mins < 60) return `NEXT PING ${mins}M`;
+  if (mins < 60) {
+    return lang === "ar" ? `الرنّة الجاية بعد ${mins} د` : `NEXT PING ${mins}M`;
+  }
   const h = Math.floor(mins / 60);
   const m = mins % 60;
+  if (lang === "ar") {
+    return m > 0
+      ? `الرنّة الجاية بعد ${h} س و${m} د`
+      : `الرنّة الجاية بعد ${h} س`;
+  }
   return m > 0 ? `NEXT PING ${h}H ${m}M` : `NEXT PING ${h}H`;
 }
 
@@ -129,6 +157,8 @@ export default function TaskCard({
   onChangeInterval,
   onOpenDetail,
 }: TaskCardProps) {
+  const { lang, isAr } = useLanguage();
+
   const myStatus = task.memberStatuses.find(
     (s) => s.userId === currentUser.id
   );
@@ -139,8 +169,10 @@ export default function TaskCard({
   const intervalMins =
     myStatus?.reminderIntervalMinutes || task.defaultReminderMinutes || 120;
 
-  const catBadge = CATEGORY_BADGE[task.category] || CATEGORY_BADGE.assignment;
-  const dueInfo = formatTimeRemaining(task.dueAt);
+  const catClass =
+    CATEGORY_CLASS[task.category] || CATEGORY_CLASS.assignment;
+  const catLabel = getCategoryLabel(task.category, lang);
+  const dueInfo = formatTimeRemaining(task.dueAt, lang);
 
   const workingMembers = task.memberStatuses.filter(
     (m) => m.involvement === "on_me" && m.status !== "done"
@@ -165,13 +197,13 @@ export default function TaskCard({
           : "border-[var(--border-subtle)]"
       }`}
     >
-      {/* Architectural Left Status Rail */}
+      {/* Architectural Status Rail (start-0 adapts automatically to LTR / RTL) */}
       <div
-        className={`absolute left-0 top-0 bottom-0 w-1.5 ${leftRailColor}`}
+        className={`absolute start-0 top-0 bottom-0 w-1.5 ${leftRailColor}`}
         aria-hidden="true"
       />
 
-      <div className="pl-5 pr-4 py-4 sm:pl-6 sm:pr-5 sm:py-5">
+      <div className="ps-5 pe-4 py-4 sm:ps-6 sm:pe-5 sm:py-5">
         {/* Top Metadata Ledger Row */}
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--border-subtle)]">
           <div className="flex flex-wrap items-center gap-2">
@@ -179,33 +211,37 @@ export default function TaskCard({
             {task.groupId === null ? (
               <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#111315] text-white dark:bg-white dark:text-[#111315]">
                 <Lock className="w-3 h-3" aria-hidden="true" />
-                PRIVATE VAULT
+                {isAr ? "خزنتي الخاصة" : "PRIVATE VAULT"}
               </span>
             ) : (
               <span className="font-mono-tabular text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--bg-subtle)] text-[var(--text-primary)] border border-[var(--border-strong)]">
-                {group?.courseCode || "SHARED"}
+                {group?.courseCode || (isAr ? "جروب المادة" : "SHARED")}
               </span>
             )}
 
             {/* Category Tag */}
             <span
-              className={`font-mono-tabular text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${catBadge.className}`}
+              className={`font-mono-tabular text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${catClass}`}
             >
-              {catBadge.label}
+              {catLabel}
             </span>
 
             {/* Active 2-Hour Loop Telemetry */}
             {isOnMe && !isDoneForMe && (
               <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#EA580C]/12 text-[#EA580C] border border-[#EA580C]/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#EA580C] animate-pulse" />
-                {formatNextPing(myStatus?.nextReminderAt || null, intervalMins)}
+                {formatNextPing(
+                  myStatus?.nextReminderAt || null,
+                  intervalMins,
+                  lang
+                )}
               </span>
             )}
 
             {isDoneForMe && (
               <span className="inline-flex items-center gap-1 font-mono-tabular text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#059669]/12 text-[#059669] dark:text-[#10B981] border border-[#059669]/30">
                 <Check className="w-3 h-3 stroke-[2.5]" aria-hidden="true" />
-                DONE (ALERTS OFF)
+                {isAr ? "خلّصت خلاص (الزنّ وقف)" : "DONE (ALERTS OFF)"}
               </span>
             )}
           </div>
@@ -221,9 +257,15 @@ export default function TaskCard({
             }`}
           >
             {dueInfo.urgent && !isDoneForMe ? (
-              <AlertCircle className="w-3.5 h-3.5 text-[#EA580C]" aria-hidden="true" />
+              <AlertCircle
+                className="w-3.5 h-3.5 text-[#EA580C]"
+                aria-hidden="true"
+              />
             ) : (
-              <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" aria-hidden="true" />
+              <Clock
+                className="w-3.5 h-3.5 text-[var(--text-muted)]"
+                aria-hidden="true"
+              />
             )}
             {dueInfo.label}
           </span>
@@ -292,7 +334,9 @@ export default function TaskCard({
                     workingMembers.map((m) => (
                       <span
                         key={m.userId}
-                        title={`${m.userName} — On It (${m.reminderIntervalMinutes}m loop)`}
+                        title={`${m.userName} — ${
+                          isAr ? "شغال عليه" : "On It"
+                        } (${m.reminderIntervalMinutes}m)`}
                         style={{ backgroundColor: m.userColor }}
                         className="font-mono-tabular w-6 h-6 rounded-full ring-2 ring-[var(--bg-surface)] text-[10px] font-bold text-white flex items-center justify-center"
                       >
@@ -305,7 +349,9 @@ export default function TaskCard({
                   <span className="font-mono-tabular font-bold text-[var(--text-primary)]">
                     {workingMembers.length}
                   </span>{" "}
-                  <span className="text-[var(--text-secondary)]">On It</span>
+                  <span className="text-[var(--text-secondary)]">
+                    {isAr ? "شغالين عليه" : "On It"}
+                  </span>
                   {workingMembers.length > 0 && (
                     <span className="text-[var(--text-muted)] hidden sm:inline">
                       {" "}
@@ -335,7 +381,7 @@ export default function TaskCard({
                     doneMembers.map((m) => (
                       <span
                         key={m.userId}
-                        title={`${m.userName} — Done`}
+                        title={`${m.userName} — ${isAr ? "خلّص" : "Done"}`}
                         style={{ backgroundColor: m.userColor }}
                         className="font-mono-tabular w-6 h-6 rounded-full ring-2 ring-[#059669] text-[10px] font-bold text-white flex items-center justify-center"
                       >
@@ -348,7 +394,9 @@ export default function TaskCard({
                   <span className="font-mono-tabular font-bold text-[#059669] dark:text-[#10B981]">
                     {doneMembers.length}
                   </span>{" "}
-                  <span className="text-[var(--text-secondary)]">Done</span>
+                  <span className="text-[var(--text-secondary)]">
+                    {isAr ? "خلّصوا" : "Done"}
+                  </span>
                   {doneMembers.length > 0 && (
                     <span className="text-[var(--text-muted)] hidden sm:inline">
                       {" "}
@@ -386,7 +434,11 @@ export default function TaskCard({
             <>
               <span className="text-xs font-medium text-[var(--text-secondary)]">
                 {isSkipped
-                  ? "Dismissed from your queue"
+                  ? isAr
+                    ? "شيلته من قايمتك"
+                    : "Dismissed from your queue"
+                  : isAr
+                  ? "التاسك ده تبعك؟ شغّل التذكير كل ساعتين:"
                   : "Applies to you? Start your 2-hour loop:"}
               </span>
               <div className="flex items-center gap-2">
@@ -399,7 +451,7 @@ export default function TaskCard({
                     className="w-3.5 h-3.5 text-[#EA580C]"
                     aria-hidden="true"
                   />
-                  On Me (Every 2h)
+                  {isAr ? "عليّا أنا (كل ساعتين)" : "On Me (Every 2h)"}
                 </button>
                 {!isSkipped && (
                   <button
@@ -408,7 +460,7 @@ export default function TaskCard({
                     className="min-h-[40px] inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-[var(--bg-subtle)] hover:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[var(--text-secondary)] text-xs font-semibold transition cursor-pointer active:scale-[0.98]"
                   >
                     <X className="w-3.5 h-3.5" aria-hidden="true" />
-                    Skip
+                    {isAr ? "فكك / مش تبعي" : "Skip"}
                   </button>
                 )}
               </div>
@@ -423,7 +475,7 @@ export default function TaskCard({
                       aria-hidden="true"
                     />
                     <span className="font-mono-tabular text-[11px] font-semibold text-[var(--text-secondary)]">
-                      INTERVAL:
+                      {isAr ? "فكّرني:" : "INTERVAL:"}
                     </span>
                     <select
                       aria-label="Reminder interval"
@@ -439,14 +491,16 @@ export default function TaskCard({
                           value={opt.value}
                           className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
                         >
-                          {opt.label}
+                          {getIntervalOptionLabel(opt.value, lang)}
                         </option>
                       ))}
                     </select>
                   </div>
                 ) : (
                   <span className="font-mono-tabular text-xs font-semibold text-[#059669] dark:text-[#10B981]">
-                    COMPLETED BY YOU · REMINDERS HALTED
+                    {isAr
+                      ? "تم التسليم · التذكير وقف خلاص"
+                      : "COMPLETED BY YOU · REMINDERS HALTED"}
                   </span>
                 )}
 
@@ -456,7 +510,7 @@ export default function TaskCard({
                     onClick={() => onSkipTask(task.id)}
                     className="min-h-[36px] px-2 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] underline cursor-pointer"
                   >
-                    Remove from my queue
+                    {isAr ? "شيله من عليّا" : "Remove from my queue"}
                   </button>
                 )}
               </div>
@@ -468,7 +522,9 @@ export default function TaskCard({
                     onClick={() => onOpenDetail(task.id)}
                     className="min-h-[40px] px-3 py-2 rounded-lg bg-[var(--bg-subtle)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] text-xs font-semibold cursor-pointer"
                   >
-                    Files ({task.attachments.length})
+                    {isAr
+                      ? `الملفات (${task.attachments.length})`
+                      : `Files (${task.attachments.length})`}
                   </button>
                 )}
                 <button
@@ -483,7 +539,7 @@ export default function TaskCard({
                   {isDoneForMe ? (
                     <>
                       <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
-                      Reopen
+                      {isAr ? "افتحه تاني" : "Reopen"}
                     </>
                   ) : (
                     <>
@@ -491,7 +547,7 @@ export default function TaskCard({
                         className="w-4 h-4 stroke-[2.5]"
                         aria-hidden="true"
                       />
-                      Mark Done
+                      {isAr ? "خلّصت خلاص" : "Mark Done"}
                     </>
                   )}
                 </button>

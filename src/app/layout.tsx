@@ -3,6 +3,7 @@ import {
   Outfit,
   Plus_Jakarta_Sans,
   JetBrains_Mono,
+  Cairo,
 } from "next/font/google";
 import "./globals.css";
 
@@ -22,6 +23,12 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-mono",
+});
+
+const cairo = Cairo({
+  subsets: ["arabic", "latin"],
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-arabic",
 });
 
 export const metadata: Metadata = {
@@ -60,7 +67,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${outfit.variable} ${plusJakarta.variable} ${jetbrainsMono.variable}`}
+      className={`${outfit.variable} ${plusJakarta.variable} ${jetbrainsMono.variable} ${cairo.variable}`}
     >
       <body className="antialiased selection:bg-[#0D9488] selection:text-white">
         {children}

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { KeyRound, Plus, X } from "lucide-react";
+import { useLanguage } from "@/lib/i18n";
 
 interface GroupModalProps {
   open: boolean;
@@ -24,6 +25,7 @@ export default function GroupModal({
   onCreateGroup,
   onJoinByCode,
 }: GroupModalProps) {
+  const { isAr } = useLanguage();
   const [mode, setMode] = useState<"create" | "join">("create");
   const [name, setName] = useState("");
   const [courseCode, setCourseCode] = useState("");
@@ -58,7 +60,9 @@ export default function GroupModal({
     if (!res.ok) {
       setFeedback({
         ok: false,
-        message: res.error || "Could not create group.",
+        message:
+          res.error ||
+          (isAr ? "مقدرناش نعمل الجروب." : "Could not create group."),
       });
       return;
     }
@@ -96,13 +100,15 @@ export default function GroupModal({
         <div className="flex items-center justify-between pb-3.5 border-b border-[var(--border-subtle)]">
           <div>
             <span className="font-mono-tabular text-[10px] font-bold uppercase tracking-widest text-[#0D9488]">
-              SHARED SPACES
+              {isAr ? "جروبات المواد والسكاشن" : "SHARED SPACES"}
             </span>
             <h3
               id="group-modal-title"
               className="font-display text-lg font-bold flex items-center gap-2"
             >
-              Create or Join Course Group
+              {isAr
+                ? "اعمل جروب مادة أو ادخل بكود"
+                : "Create or Join Course Group"}
             </h3>
           </div>
           <button
@@ -128,7 +134,7 @@ export default function GroupModal({
                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            Create Course
+            {isAr ? "اعمل جروب مادة" : "Create Course"}
           </button>
           <button
             type="button"
@@ -142,7 +148,7 @@ export default function GroupModal({
                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            Join by Code
+            {isAr ? "ادخل بكود الدعوة" : "Join by Code"}
           </button>
         </div>
 
@@ -165,7 +171,7 @@ export default function GroupModal({
                 htmlFor="course-code-input"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
               >
-                Course Code *
+                {isAr ? "كود المادة *" : "Course Code *"}
               </label>
               <input
                 id="course-code-input"
@@ -174,7 +180,7 @@ export default function GroupModal({
                 maxLength={12}
                 value={courseCode}
                 onChange={(e) => setCourseCode(e.target.value)}
-                placeholder="e.g., CS-305 or AI-LAB"
+                placeholder={isAr ? "مثال: CS-305 أو AI-LAB" : "e.g., CS-305 or AI-LAB"}
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 font-mono-tabular text-sm uppercase text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
@@ -184,7 +190,7 @@ export default function GroupModal({
                 htmlFor="course-name-input"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
               >
-                Group Title *
+                {isAr ? "اسم المادة / السكشن *" : "Group Title *"}
               </label>
               <input
                 id="course-name-input"
@@ -192,7 +198,11 @@ export default function GroupModal({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., Artificial Intelligence — Section 2"
+                placeholder={
+                  isAr
+                    ? "مثال: ذكاء اصطناعي — سكشن ٢"
+                    : "e.g., Artificial Intelligence — Section 2"
+                }
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
@@ -202,9 +212,11 @@ export default function GroupModal({
                 htmlFor="custom-invite-input"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center justify-between"
               >
-                <span>Custom Invite Code (Optional)</span>
+                <span>
+                  {isAr ? "كود دعوة مخصص (اختياري)" : "Custom Invite Code (Optional)"}
+                </span>
                 <span className="text-[10px] text-[var(--text-muted)]">
-                  AUTO-GENERATED IF BLANK
+                  {isAr ? "بيتصنع تلقائي لو سبته فاضي" : "AUTO-GENERATED IF BLANK"}
                 </span>
               </label>
               <input
@@ -228,7 +240,13 @@ export default function GroupModal({
               className="w-full min-h-[44px] py-3 rounded-xl bg-[#0D9488] hover:bg-[#0F766E] disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.99]"
             >
               <Plus className="w-4 h-4" aria-hidden="true" />
-              {loading ? "Creating Space..." : "Create Shared Space"}
+              {loading
+                ? isAr
+                  ? "جاري الإنشاء..."
+                  : "Creating Space..."
+                : isAr
+                ? "اعمل جروب المادة"
+                : "Create Shared Space"}
             </button>
           </form>
         ) : (
@@ -238,7 +256,7 @@ export default function GroupModal({
                 htmlFor="invite-code-input"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
               >
-                Course Invite Code
+                {isAr ? "كود دعوة الجروب" : "Course Invite Code"}
               </label>
               <input
                 id="invite-code-input"
@@ -246,7 +264,7 @@ export default function GroupModal({
                 required
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                placeholder="OS2026, SE401X, or BATCH26"
+                placeholder={isAr ? "اكتب الكود اللي زميلك بعتهولك" : "Enter group invite code"}
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 font-mono-tabular text-sm uppercase tracking-widest text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
@@ -257,7 +275,13 @@ export default function GroupModal({
               className="w-full min-h-[44px] py-3 rounded-xl bg-[#111315] text-white dark:bg-white dark:text-[#111315] disabled:opacity-50 font-bold text-sm flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.99]"
             >
               <KeyRound className="w-4 h-4" aria-hidden="true" />
-              {loading ? "Joining..." : "Join Course Group"}
+              {loading
+                ? isAr
+                  ? "بيدخل الجروب..."
+                  : "Joining..."
+                : isAr
+                ? "ادخل جروب المادة"
+                : "Join Course Group"}
             </button>
           </form>
         )}

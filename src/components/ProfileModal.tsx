@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { UserProfile } from "@/types/app";
+import { useLanguage } from "@/lib/i18n";
 
 interface ProfileModalProps {
   open: boolean;
@@ -65,6 +66,7 @@ export default function ProfileModal({
   pushLoading = false,
   pushFeedback = null,
 }: ProfileModalProps) {
+  const { isAr } = useLanguage();
   const [mode, setMode] = useState<"signin" | "signup">(
     users.length === 0 ? "signup" : "signin"
   );
@@ -114,11 +116,17 @@ export default function ProfileModal({
       .replace(/[^A-Z0-9-]/g, "");
 
     if (!cleanCollege && !selectedUserId) {
-      setErrorMsg("Enter your College ID or select your name.");
+      setErrorMsg(
+        isAr
+          ? "اكتب الـ ID الجامعي بتاعك أو اختار اسمك."
+          : "Enter your College ID or select your name."
+      );
       return;
     }
     if (!/^\d{4}$/.test(pin.trim())) {
-      setErrorMsg("Enter your 4-digit PIN.");
+      setErrorMsg(
+        isAr ? "اكتب الـ PIN المكوّن من ٤ أرقام." : "Enter your 4-digit PIN."
+      );
       return;
     }
     setLoading(true);
@@ -127,7 +135,12 @@ export default function ProfileModal({
       : await onLogin(selectedUserId, pin.trim(), false);
     setLoading(false);
     if (!res.ok) {
-      setErrorMsg(res.error || "Invalid College ID or 4-digit PIN.");
+      setErrorMsg(
+        res.error ||
+          (isAr
+            ? "الـ ID الجامعي أو الـ PIN غلط."
+            : "Invalid College ID or 4-digit PIN.")
+      );
     } else {
       setPin("");
       setSigninCollegeId("");
@@ -143,15 +156,27 @@ export default function ProfileModal({
       .replace(/[^A-Z0-9-]/g, "");
 
     if (!cleanCollege || cleanCollege.length < 3) {
-      setErrorMsg("Enter your College / University ID (at least 3 characters).");
+      setErrorMsg(
+        isAr
+          ? "اكتب الـ ID الجامعي بتاعك (٣ حروف أو أرقام على الأقل)."
+          : "Enter your College / University ID (at least 3 characters)."
+      );
       return;
     }
     if (!newName.trim() || newName.trim().length < 2) {
-      setErrorMsg("Enter your name (at least 2 characters).");
+      setErrorMsg(
+        isAr
+          ? "اكتب اسمك (حرفين على الأقل)."
+          : "Enter your name (at least 2 characters)."
+      );
       return;
     }
     if (!/^\d{4}$/.test(newPin.trim())) {
-      setErrorMsg("Choose a 4-digit numeric PIN (e.g. 4829).");
+      setErrorMsg(
+        isAr
+          ? "اختار كود سري PIN من ٤ أرقام (زي 4829)."
+          : "Choose a 4-digit numeric PIN (e.g. 4829)."
+      );
       return;
     }
     setLoading(true);
@@ -163,7 +188,7 @@ export default function ProfileModal({
     );
     setLoading(false);
     if (!res.ok) {
-      setErrorMsg(res.error || "Registration failed.");
+      setErrorMsg(res.error || (isAr ? "حصلت مشكلة في التسجيل." : "Registration failed."));
     } else {
       setNewCollegeId("");
       setNewName("");
@@ -192,14 +217,20 @@ export default function ProfileModal({
           <div>
             <span className="inline-flex items-center gap-1 font-mono-tabular text-[10px] font-bold uppercase tracking-widest text-[#0D9488]">
               <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-              COLLEGE ID + PIN VERIFIED SESSION
+              {isAr
+                ? "حساب طالب موثّق بـ ID الجامعة + PIN"
+                : "COLLEGE ID + PIN VERIFIED SESSION"}
             </span>
             <h3
               id="auth-modal-title"
               className="font-display text-lg font-bold mt-0.5"
             >
               {authenticatedUser
-                ? "Verified Student Session & Settings"
+                ? isAr
+                  ? "حسابك وإعدادات التنبيهات"
+                  : "Verified Student Session & Settings"
+                : isAr
+                ? "ادخل لحسابك أو اعمل حساب طالب جديد"
                 : "Sign In or Create Student Profile"}
             </h3>
           </div>
@@ -238,7 +269,9 @@ export default function ProfileModal({
                     )}
                   </div>
                   <p className="font-mono-tabular text-[11px] text-[#059669] dark:text-[#10B981]">
-                    SIGNED IN · PRIVATE VAULT UNLOCKED
+                    {isAr
+                      ? "مسجّل دخول · خزنتك الخاصة مفتوحة"
+                      : "SIGNED IN · PRIVATE VAULT UNLOCKED"}
                   </p>
                 </div>
               </div>
@@ -250,7 +283,7 @@ export default function ProfileModal({
                 className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-xs font-bold text-[#DC2626] cursor-pointer shrink-0"
               >
                 <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
-                Sign Out
+                {isAr ? "خروج" : "Sign Out"}
               </button>
             </div>
 
@@ -262,11 +295,13 @@ export default function ProfileModal({
                     className="w-3.5 h-3.5 text-[#0D9488]"
                     aria-hidden="true"
                   />
-                  Personal Quiet Hours (Pause 2h Pings)
+                  {isAr
+                    ? "وقت النوم (افصل الزنّ والمنبهات)"
+                    : "Personal Quiet Hours (Pause 2h Pings)"}
                 </span>
                 {quietSaved && (
                   <span className="font-mono-tabular text-[10px] font-bold text-[#059669]">
-                    SAVED TO SUPABASE
+                    {isAr ? "اتحفظ خلاص" : "SAVED TO SUPABASE"}
                   </span>
                 )}
               </div>
@@ -279,7 +314,7 @@ export default function ProfileModal({
                   className="flex-1 min-h-[38px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 font-mono-tabular text-xs font-semibold text-[var(--text-primary)]"
                 />
                 <span className="font-mono-tabular text-xs text-[var(--text-muted)]">
-                  to
+                  {isAr ? "لحد" : "to"}
                 </span>
                 <input
                   type="time"
@@ -293,7 +328,7 @@ export default function ProfileModal({
                   onClick={handleSaveQuietHours}
                   className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#111315] text-white dark:bg-white dark:text-[#111315] text-xs font-bold cursor-pointer shrink-0"
                 >
-                  Save
+                  {isAr ? "حفظ" : "Save"}
                 </button>
               </div>
             </div>
@@ -302,7 +337,9 @@ export default function ProfileModal({
             <div className="p-3.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] space-y-2.5">
               <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[#EA580C]">
                 <BellRing className="w-3.5 h-3.5" aria-hidden="true" />
-                Verify iPhone / Browser Web Push
+                {isAr
+                  ? "اختبر إشعارات الموبايل والمتصفح"
+                  : "Verify iPhone / Browser Web Push"}
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {onEnablePushGesture && (
@@ -316,7 +353,7 @@ export default function ProfileModal({
                       className="w-3.5 h-3.5 text-[#0D9488]"
                       aria-hidden="true"
                     />
-                    Enable 2h Alerts
+                    {isAr ? "شغّل تنبيه كل ساعتين" : "Enable 2h Alerts"}
                   </button>
                 )}
                 {onSendTestPush && (
@@ -327,7 +364,7 @@ export default function ProfileModal({
                     className="min-h-[38px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
                   >
                     <Send className="w-3.5 h-3.5" aria-hidden="true" />
-                    Send Test Notification
+                    {isAr ? "ابعت إشعار تجريبي" : "Send Test Notification"}
                   </button>
                 )}
               </div>
@@ -354,7 +391,13 @@ export default function ProfileModal({
                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            {authenticatedUser ? "Switch Account (PIN)" : "Student Sign In (PIN)"}
+            {authenticatedUser
+              ? isAr
+                ? "بدّل لحساب تاني (PIN)"
+                : "Switch Account (PIN)"
+              : isAr
+              ? "دخول طالب مسجّل (PIN)"
+              : "Student Sign In (PIN)"}
           </button>
           <button
             type="button"
@@ -368,7 +411,7 @@ export default function ProfileModal({
                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            + New Student Sign Up
+            {isAr ? "+ طالب جديد (حساب جديد)" : "+ New Student Sign Up"}
           </button>
         </div>
 
@@ -390,7 +433,9 @@ export default function ProfileModal({
                   className="w-3.5 h-3.5 text-[#0D9488]"
                   aria-hidden="true"
                 />
-                College / University ID
+                {isAr
+                  ? "الـ ID الجامعي (كود الطالب)"
+                  : "College / University ID"}
               </label>
               <input
                 id="signin-college-id"
@@ -404,7 +449,7 @@ export default function ProfileModal({
                 data-form-type="other"
                 value={signinCollegeId}
                 onChange={(e) => setSigninCollegeId(e.target.value)}
-                placeholder="e.g., 20220145"
+                placeholder={isAr ? "مثال: 20220145" : "e.g., 20220145"}
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 font-mono-tabular text-sm uppercase tracking-wider text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
@@ -415,7 +460,9 @@ export default function ProfileModal({
                   htmlFor="signin-user-select"
                   className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
                 >
-                  Or Select Your Name from Batch Roster
+                  {isAr
+                    ? "أو اختار اسمك من قايمة الدفعة"
+                    : "Or Select Your Name from Batch Roster"}
                 </label>
                 <select
                   id="signin-user-select"
@@ -446,7 +493,7 @@ export default function ProfileModal({
                   className="w-3.5 h-3.5 text-[#0D9488]"
                   aria-hidden="true"
                 />
-                4-Digit Security PIN *
+                {isAr ? "الكود السري PIN (٤ أرقام) *" : "4-Digit Security PIN *"}
               </label>
               <input
                 id="signin-pin-box"
@@ -470,7 +517,7 @@ export default function ProfileModal({
                     submitSignIn();
                   }
                 }}
-                placeholder="4-digit PIN"
+                placeholder={isAr ? "٤ أرقام" : "4-digit PIN"}
                 className="w-full min-h-[44px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 font-mono-tabular text-center text-lg tracking-[0.5em] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
@@ -485,7 +532,13 @@ export default function ProfileModal({
                 className="w-4 h-4 text-[#0D9488]"
                 aria-hidden="true"
               />
-              {loading ? "Verifying PIN..." : "Verify PIN & Sign In"}
+              {loading
+                ? isAr
+                  ? "بيتأكد من الـ PIN..."
+                  : "Verifying PIN..."
+                : isAr
+                ? "افتح حسابي وخزنتي"
+                : "Verify PIN & Sign In"}
             </button>
           </div>
         ) : (
@@ -500,10 +553,10 @@ export default function ProfileModal({
                     className="w-3.5 h-3.5 text-[#0D9488]"
                     aria-hidden="true"
                   />
-                  College / University ID *
+                  {isAr ? "الـ ID الجامعي (كود الكلية) *" : "College / University ID *"}
                 </span>
                 <span className="text-[10px] text-[var(--text-muted)]">
-                  1 ACCOUNT PER ID
+                  {isAr ? "حساب واحد لكل طالب" : "1 ACCOUNT PER ID"}
                 </span>
               </label>
               <input
@@ -518,7 +571,7 @@ export default function ProfileModal({
                 data-form-type="other"
                 value={newCollegeId}
                 onChange={(e) => setNewCollegeId(e.target.value)}
-                placeholder="e.g., 20220145"
+                placeholder={isAr ? "مثال: 20220145" : "e.g., 20220145"}
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 font-mono-tabular text-sm uppercase tracking-wider text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
@@ -528,7 +581,7 @@ export default function ProfileModal({
                 htmlFor="signup-display-input"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
               >
-                Your Name *
+                {isAr ? "اسمك *" : "Your Name *"}
               </label>
               <input
                 id="signup-display-input"
@@ -542,7 +595,7 @@ export default function ProfileModal({
                 data-form-type="other"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g., Ahmed M."
+                placeholder={isAr ? "مثال: أحمد محمد" : "e.g., Ahmed M."}
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
             </div>
@@ -552,7 +605,7 @@ export default function ProfileModal({
                 htmlFor="signup-pin-box"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
               >
-                Set Your 4-Digit PIN *
+                {isAr ? "اختار كود سري PIN (٤ أرقام) *" : "Set Your 4-Digit PIN *"}
               </label>
               <input
                 id="signup-pin-box"
@@ -581,17 +634,21 @@ export default function ProfileModal({
                     submitSignUp();
                   }
                 }}
-                placeholder="Choose 4 digits (e.g. 4829)"
+                placeholder={
+                  isAr ? "اكتب ٤ أرقام تحفظهم (مثلاً 4829)" : "Choose 4 digits (e.g. 4829)"
+                }
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2 font-mono-tabular text-sm tracking-widest text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
               />
               <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                Linked to your College ID so no one can create duplicate accounts or open your Private Vault.
+                {isAr
+                  ? "مربوط بالـ ID الجامعي بتاعك عشان محدش يفتح خزنتك الخاصة أو يعمل أكونت باسمك."
+                  : "Linked to your College ID so no one can create duplicate accounts or open your Private Vault."}
               </p>
             </div>
 
             <div>
               <span className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">
-                Avatar Badge Color
+                {isAr ? "لون البروفايل بتاعك" : "Avatar Badge Color"}
               </span>
               <div className="flex items-center gap-2">
                 {AVATAR_PALETTE.map((c) => (
@@ -630,7 +687,13 @@ export default function ProfileModal({
               className="w-full min-h-[44px] py-3 rounded-xl bg-[#0D9488] hover:bg-[#0F766E] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
             >
               <UserPlus className="w-4 h-4" aria-hidden="true" />
-              {loading ? "Creating Account..." : "Register College ID & Sign In"}
+              {loading
+                ? isAr
+                  ? "بيسجّل حسابك..."
+                  : "Creating Account..."
+                : isAr
+                ? "سجّل الـ ID وادخل"
+                : "Register College ID & Sign In"}
             </button>
           </div>
         )}

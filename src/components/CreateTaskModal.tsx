@@ -15,6 +15,7 @@ import {
   StudyGroup,
   TaskCategory,
 } from "@/types/app";
+import { getIntervalOptionLabel, useLanguage } from "@/lib/i18n";
 
 interface CreateTaskModalProps {
   open: boolean;
@@ -41,6 +42,7 @@ export default function CreateTaskModal({
   defaultSpaceId,
   onCreateTask,
 }: CreateTaskModalProps) {
+  const { lang, isAr } = useLanguage();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [spaceId, setSpaceId] = useState<string>(defaultSpaceId || "personal");
@@ -101,10 +103,12 @@ export default function CreateTaskModal({
         <div className="flex items-center justify-between pb-3.5 border-b border-[var(--border-subtle)]">
           <div>
             <span className="font-mono-tabular text-[10px] font-bold uppercase tracking-widest text-[#0D9488]">
-              NEW TASK ENTRY
+              {isAr ? "إضافة تاسك جديد" : "NEW TASK ENTRY"}
             </span>
             <h3 id="create-task-title" className="font-display text-lg font-bold">
-              Publish to Group or Private Vault
+              {isAr
+                ? "نزّل تاسك للجروب أو في خزنتك الخاصة"
+                : "Publish to Group or Private Vault"}
             </h3>
           </div>
           <button
@@ -124,7 +128,7 @@ export default function CreateTaskModal({
               htmlFor="task-space-select"
               className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
             >
-              Target Workspace
+              {isAr ? "هتنزله فين؟" : "Target Workspace"}
             </label>
             <select
               id="task-space-select"
@@ -137,11 +141,15 @@ export default function CreateTaskModal({
               className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm font-medium text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
             >
               <option value="personal">
-                Private Personal Vault (Strictly Invisible to Others)
+                {isAr
+                  ? "خزنتي الخاصة (محدش غيري بيشوفها)"
+                  : "Private Personal Vault (Strictly Invisible to Others)"}
               </option>
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>
-                  Shared Group: {g.courseCode} — {g.name}
+                  {isAr
+                    ? `جروب المادة: ${g.courseCode} — ${g.name}`
+                    : `Shared Group: ${g.courseCode} — ${g.name}`}
                 </option>
               ))}
             </select>
@@ -150,13 +158,19 @@ export default function CreateTaskModal({
                 <>
                   <Lock className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
                   {groups.length === 0
-                    ? "Isolated to your Private Vault. (To post a group task, create/join a course in Shared Groups first.)"
+                    ? isAr
+                      ? "محفوظ في خزنتك الخاصة بس. (لو عايز تنزّل تاسك للدفعة، ادخل جروب المادة الأول)."
+                      : "Isolated to your Private Vault. (To post a group task, create/join a course in Shared Groups first.)"
+                    : isAr
+                    ? "مقفول بحسابك الشخصي ومحدش تاني يقدر يشوفه."
                     : "Isolated to your account via verified session cookie."}
                 </>
               ) : (
                 <>
                   <Users className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
-                  Classmates can view files, comment, and opt in &ldquo;On Me&rdquo;.
+                  {isAr
+                    ? "زمايلك في الجروب هيشوفوا الملفات ويقدروا يدوسوا «عليّا أنا»."
+                    : "Classmates can view files, comment, and opt in “On Me”."}
                 </>
               )}
             </p>
@@ -168,7 +182,7 @@ export default function CreateTaskModal({
               htmlFor="task-title-input"
               className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
             >
-              Task Title *
+              {isAr ? "عنوان التاسك *" : "Task Title *"}
             </label>
             <input
               id="task-title-input"
@@ -178,7 +192,11 @@ export default function CreateTaskModal({
               onChange={(e) => setTitle(e.target.value)}
               placeholder={
                 isPersonal
-                  ? "e.g., Submit summer internship application"
+                  ? isAr
+                    ? "مثال: أذاكر شابتر ٣ أو أبعت الـ CV للتدريب"
+                    : "e.g., Submit summer internship application"
+                  : isAr
+                  ? "مثال: تسليم شيت ٣ أو بروجيكت الـ OS"
                   : "e.g., Assignment 3: Deadlock Detection Code"
               }
               className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
@@ -191,14 +209,18 @@ export default function CreateTaskModal({
               htmlFor="task-desc-input"
               className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
             >
-              Specifications &amp; Notes
+              {isAr ? "التفاصيل والملاحظات" : "Specifications & Notes"}
             </label>
             <textarea
               id="task-desc-input"
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Submission link, grading rubric notes, or lecture instructions..."
+              placeholder={
+                isAr
+                  ? "لينك الفورم، تعليمات الدكتور أو المعيد، أو المطلوب بالتفصيل..."
+                  : "Submission link, grading rubric notes, or lecture instructions..."
+              }
               className="w-full bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#0D9488]"
             />
           </div>
@@ -211,7 +233,7 @@ export default function CreateTaskModal({
                   htmlFor="task-cat-select"
                   className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
                 >
-                  Category
+                  {isAr ? "نوع التاسك" : "Category"}
                 </label>
                 <select
                   id="task-cat-select"
@@ -219,10 +241,16 @@ export default function CreateTaskModal({
                   onChange={(e) => setCategory(e.target.value as TaskCategory)}
                   className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
                 >
-                  <option value="assignment">Assignment</option>
-                  <option value="quiz">Quiz</option>
-                  <option value="exam">Exam</option>
-                  <option value="project">Project</option>
+                  <option value="assignment">
+                    {isAr ? "تاسك / شيت (Assignment)" : "Assignment"}
+                  </option>
+                  <option value="quiz">{isAr ? "كويز (Quiz)" : "Quiz"}</option>
+                  <option value="exam">
+                    {isAr ? "امتحان / ميدتيرم (Exam)" : "Exam"}
+                  </option>
+                  <option value="project">
+                    {isAr ? "بروجيكت (Project)" : "Project"}
+                  </option>
                 </select>
               </div>
             )}
@@ -232,8 +260,11 @@ export default function CreateTaskModal({
                 htmlFor="task-due-select"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center gap-1"
               >
-                <Calendar className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
-                Due Window
+                <Calendar
+                  className="w-3.5 h-3.5 text-[#0D9488]"
+                  aria-hidden="true"
+                />
+                {isAr ? "ميعاد التسليم (الديدلاين)" : "Due Window"}
               </label>
               <select
                 id="task-due-select"
@@ -241,13 +272,31 @@ export default function CreateTaskModal({
                 onChange={(e) => setDueInHours(Number(e.target.value))}
                 className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
               >
-                <option value={6}>Tonight (in 6 hours)</option>
-                <option value={18}>Tomorrow Morning (in 18 hours)</option>
-                <option value={24}>Tomorrow (in 24 hours)</option>
-                <option value={48}>In 2 Days (48 hours)</option>
-                <option value={72}>In 3 Days (72 hours)</option>
-                <option value={168}>Next Week (7 days)</option>
-                <option value={-1}>Pick Exact Date &amp; Time...</option>
+                <option value={6}>
+                  {isAr ? "النهاردة بالليل (كمان ٦ ساعات)" : "Tonight (in 6 hours)"}
+                </option>
+                <option value={18}>
+                  {isAr
+                    ? "بكرة الصبح (كمان ١٨ ساعة)"
+                    : "Tomorrow Morning (in 18 hours)"}
+                </option>
+                <option value={24}>
+                  {isAr ? "بكرة (كمان ٢٤ ساعة)" : "Tomorrow (in 24 hours)"}
+                </option>
+                <option value={48}>
+                  {isAr ? "بعد يومين (٤٨ ساعة)" : "In 2 Days (48 hours)"}
+                </option>
+                <option value={72}>
+                  {isAr ? "بعد ٣ أيام (٧٢ ساعة)" : "In 3 Days (72 hours)"}
+                </option>
+                <option value={168}>
+                  {isAr ? "الأسبوع الجاي (٧ أيام)" : "Next Week (7 days)"}
+                </option>
+                <option value={-1}>
+                  {isAr
+                    ? "اختار تاريخ وساعة بالظبط..."
+                    : "Pick Exact Date & Time..."}
+                </option>
               </select>
             </div>
           </div>
@@ -258,7 +307,9 @@ export default function CreateTaskModal({
                 htmlFor="task-custom-due"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
               >
-                Exact Deadline Date &amp; Time *
+                {isAr
+                  ? "تاريخ وساعة التسليم بالظبط *"
+                  : "Exact Deadline Date & Time *"}
               </label>
               <input
                 id="task-custom-due"
@@ -278,8 +329,11 @@ export default function CreateTaskModal({
                 htmlFor="task-interval-select"
                 className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center gap-1"
               >
-                <BellRing className="w-3.5 h-3.5 text-[#EA580C]" aria-hidden="true" />
-                Reminder Cadence
+                <BellRing
+                  className="w-3.5 h-3.5 text-[#EA580C]"
+                  aria-hidden="true"
+                />
+                {isAr ? "يفكّرني كل قد إيه؟" : "Reminder Cadence"}
               </label>
               <select
                 id="task-interval-select"
@@ -291,7 +345,7 @@ export default function CreateTaskModal({
               >
                 {REMINDER_INTERVAL_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {getIntervalOptionLabel(opt.value, lang)}
                   </option>
                 ))}
               </select>
@@ -299,8 +353,11 @@ export default function CreateTaskModal({
 
             <div>
               <span className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 flex items-center gap-1">
-                <Paperclip className="w-3.5 h-3.5 text-[#0D9488]" aria-hidden="true" />
-                Attachment
+                <Paperclip
+                  className="w-3.5 h-3.5 text-[#0D9488]"
+                  aria-hidden="true"
+                />
+                {isAr ? "ملف مرفق (PDF / سلايد)" : "Attachment"}
               </span>
               <label className="min-h-[42px] flex items-center justify-center gap-2 w-full bg-[var(--bg-subtle)] hover:bg-[var(--bg-elevated)] border border-dashed border-[var(--border-strong)] rounded-xl px-3 py-2 text-xs font-semibold text-[var(--text-primary)] cursor-pointer truncate">
                 <input
@@ -309,7 +366,11 @@ export default function CreateTaskModal({
                   className="hidden"
                 />
                 <span className="truncate">
-                  {file ? file.name : "+ Attach PDF / Code / Image"}
+                  {file
+                    ? file.name
+                    : isAr
+                    ? "+ ارفع ملف PDF أو شيت أو صورة"
+                    : "+ Attach PDF / Code / Image"}
                 </span>
               </label>
             </div>
@@ -326,10 +387,14 @@ export default function CreateTaskModal({
               />
               <div>
                 <p className="text-xs font-bold text-[var(--text-primary)]">
-                  Also mark this &ldquo;On Me&rdquo; immediately
+                  {isAr
+                    ? "حطّه «عليّا أنا» بالمرّة أول ما ينزل"
+                    : "Also mark this “On Me” immediately"}
                 </p>
                 <p className="text-[11px] text-[var(--text-secondary)]">
-                  Arms your 2-hour background push loop as soon as published.
+                  {isAr
+                    ? "عشان يبدأ يفكّرك بيه كل ساعتين لحد ما تخلّصه."
+                    : "Arms your 2-hour background push loop as soon as published."}
                 </p>
               </div>
             </label>
@@ -341,7 +406,11 @@ export default function CreateTaskModal({
           >
             <Plus className="w-4 h-4 stroke-[2.5]" aria-hidden="true" />
             {isPersonal
-              ? "Save to Private Vault & Arm Reminders"
+              ? isAr
+                ? "احفظ في خزنتي الخاصة وشغّل التذكير"
+                : "Save to Private Vault & Arm Reminders"
+              : isAr
+              ? "نزّل التاسك لجروب المادة"
               : "Publish Task to Group"}
           </button>
         </form>
