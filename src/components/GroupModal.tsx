@@ -48,45 +48,51 @@ export default function GroupModal({
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !courseCode.trim()) return;
+    if (!name.trim() || !courseCode.trim() || loading) return;
     setLoading(true);
     setFeedback(null);
-    const res = await onCreateGroup(
-      name.trim(),
-      courseCode.trim().toUpperCase(),
-      customInviteCode.trim().toUpperCase() || undefined
-    );
-    setLoading(false);
-    if (!res.ok) {
-      setFeedback({
-        ok: false,
-        message:
-          res.error ||
-          (isAr ? "مقدرناش نعمل الجروب." : "Could not create group."),
-      });
-      return;
-    }
-    setName("");
-    setCourseCode("");
-    setCustomInviteCode("");
-    onClose();
+    try {
+      const res = await onCreateGroup(
+        name.trim(),
+        courseCode.trim().toUpperCase(),
+        customInviteCode.trim().toUpperCase() || undefined
+      );
+      setLoading(false);
+      if (!res.ok) {
+        setFeedback({
+          ok: false,
+          message:
+            res.error ||
+            (isAr ? "مقدرناش نعمل الجروب." : "Could not create group."),
+        });
+        return;
+      }
+      setName("");
+      setCourseCode("");
+      setCustomInviteCode("");
+      onClose();
+    } catch (err) { setFeedback({ ok: false, message: err instanceof Error ? err.message : "Could not create group. Please retry." }); }
+    finally { setLoading(false); }
   };
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteCode.trim()) return;
+    if (!inviteCode.trim() || loading) return;
     setLoading(true);
     setFeedback(null);
-    const res = await onJoinByCode(inviteCode.trim().toUpperCase());
-    setLoading(false);
-    setFeedback(res);
-    if (res.ok) {
-      setInviteCode("");
-      setTimeout(() => {
-        setFeedback(null);
-        onClose();
-      }, 650);
-    }
+    try {
+      const res = await onJoinByCode(inviteCode.trim().toUpperCase());
+      setLoading(false);
+      setFeedback(res);
+      if (res.ok) {
+        setInviteCode("");
+        setTimeout(() => {
+          setFeedback(null);
+          onClose();
+        }, 650);
+      }
+    } catch (err) { setFeedback({ ok: false, message: err instanceof Error ? err.message : "Could not join group. Please retry." }); }
+    finally { setLoading(false); }
   };
 
   return (

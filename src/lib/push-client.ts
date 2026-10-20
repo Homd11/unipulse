@@ -114,7 +114,7 @@ export async function requestAndSubscribeWebPush(userId: string): Promise<{
     const subJson = subscription.toJSON();
 
     // 4. Send subscription to server (/api/push/subscribe)
-    await fetch("/api/push/subscribe", {
+    const response = await fetch("/api/push/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -123,6 +123,9 @@ export async function requestAndSubscribeWebPush(userId: string): Promise<{
         userAgent: navigator.userAgent,
       }),
     });
+
+    const saved = await response.json();
+    if (!response.ok || !saved.ok) throw new Error(saved.error || "Could not save notification subscription.");
 
     return {
       ok: true,
@@ -145,6 +148,43 @@ export async function requestAndSubscribeWebPush(userId: string): Promise<{
   }
 }
 
+/** Rebind an existing subscription after login without requesting permission. */
+export async function syncExistingWebPush(): Promise<void> {
+  if (!("serviceWorker" in navigator)) return;
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) return;
+  const response = await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subscription: subscription.toJSON(), userAgent: navigator.userAgent }),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.error || "Could not save notification subscription.");
+}
+
+/** Detach while the user's authenticated server session still exists. */
+export async function detachWebPush(): Promise<void> {
+  if (!("serviceWorker" in navigator)) return;
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) return;
+  let cleanupError: unknown;
+  try {
+    const response = await fetch("/api/push/subscribe", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "Could not detach notification subscription.");
+  } catch (error) { cleanupError = error; }
+  // Removing the provider endpoint also prevents delivery if server cleanup failed.
+  try { await subscription.unsubscribe(); }
+  catch (error) { cleanupError ??= error; }
+  if (cleanupError) throw cleanupError;
+}
+
 export async function triggerServerPushNotification(params: {
   userId: string;
   title: string;
@@ -153,85 +193,15 @@ export async function triggerServerPushNotification(params: {
   intervalMinutes?: number;
 }): Promise<{ ok: boolean; reason?: string }> {
   try {
-    let subJson: PushSubscriptionJSON | undefined;
-    let reg: ServiceWorkerRegistration | undefined;
-
-    if ("serviceWorker" in navigator) {
-      reg =
-        (await navigator.serviceWorker.getRegistration()) ||
-        (await navigator.serviceWorker.register("/sw.js", { scope: "/" }));
-      await navigator.serviceWorker.ready;
-      const existingSub = await reg?.pushManager.getSubscription();
-      if (existingSub) {
-        subJson = existingSub.toJSON();
-      }
-    }
-
-    // Auto-subscribe right now if not subscribed yet!
-    if (!subJson) {
-      const subResult = await requestAndSubscribeWebPush(params.userId);
-      if (subResult.ok && subResult.subscription) {
-        subJson = subResult.subscription;
-      }
-    } else {
-      // Ensure this user's subscription is synced in Supabase push_subscriptions
-      await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: params.userId,
-          subscription: subJson,
-          userAgent: navigator.userAgent,
-        }),
-      }).catch(() => {});
-    }
-
-    const res = await fetch("/api/push/send", {
+    const response = await fetch("/api/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...params,
-        subscription: subJson,
-      }),
+      body: JSON.stringify({ title: params.title, message: params.message, taskId: params.taskId }),
     });
-    const data = await res.json();
-
-    if (data?.ok && data.sentCount > 0) {
-      return { ok: true };
-    }
-
-    // Fallback: if browser push service (e.g., Brave with Google push disabled) blocked VAPID endpoint,
-    // fire native Service Worker notification directly so the user still gets the alert
-    if (
-      typeof Notification !== "undefined" &&
-      Notification.permission === "granted"
-    ) {
-      if (reg && "showNotification" in reg) {
-        await reg.showNotification(params.title, {
-          body: params.message,
-          icon: "/icon-192.svg",
-          badge: "/icon-192.svg",
-          tag: params.taskId ? `task-${params.taskId}` : "unipulse-test",
-        });
-        return { ok: true };
-      } else {
-        new Notification(params.title, {
-          body: params.message,
-          icon: "/icon-192.svg",
-        });
-        return { ok: true };
-      }
-    }
-
-    return {
-      ok: false,
-      reason:
-        data?.reason || "Allow notifications in your browser/iOS prompt first.",
-    };
+    const data = await response.json();
+    if (response.ok && data.ok && data.sentCount > 0) return { ok: true };
+    return { ok: false, reason: data.error || data.reason || "No background notification was delivered. Enable alerts and try again." };
   } catch {
-    return {
-      ok: false,
-      reason: "Could not send test notification.",
-    };
+    return { ok: false, reason: "Could not send test notification." };
   }
 }

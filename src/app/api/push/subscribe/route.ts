@@ -1,75 +1,41 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
-import { getServiceSupabase } from "@/lib/supabase";
-import { checkSupabaseTablesReady } from "@/lib/supabase-data";
-import { getLocalPushStore } from "@/lib/vapid";
-import { writeServerDb } from "@/lib/server-db";
+import { ApiError, checkDb, rateLimit, readJson, requireDb, requireSession, routeError } from "@/lib/api";
+import { validateSubscription, validatePushEndpoint } from "@/lib/push-server";
 
 export async function POST(request: Request) {
   try {
-    const session = await getSessionUser();
-    const body = await request.json();
-    const { userId: bodyUserId, subscription, userAgent } = body;
-    const userId = session?.userId || bodyUserId;
+    const session = await requireSession();
+    const body = await readJson(request);
+    if (body.userId !== undefined && body.userId !== session.userId) throw new ApiError(403, "Subscriptions belong to the signed-in account");
+    const subscription = validateSubscription(body.subscription);
+    if (body.userAgent !== undefined && (typeof body.userAgent !== "string" || body.userAgent.length > 1024)) throw new ApiError(400, "Invalid user agent");
+    await rateLimit(`push-subscribe:${session.userId}`, 15, 60);
+    const db = requireDb();
+    const { data: existing, error: lookupError } = await db.from("push_subscriptions").select("user_id").eq("endpoint", subscription.endpoint).maybeSingle();
+    checkDb(lookupError);
+    if (existing && existing.user_id !== session.userId) throw new ApiError(403, "Subscription belongs to another account. Remove it from that account first.");
+    const record = { endpoint: subscription.endpoint, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth, user_agent: body.userAgent || null };
+    // Never upsert on the globally unique endpoint: a concurrent registration must not reassign ownership.
+    const result = existing
+      ? await db.from("push_subscriptions").update(record).eq("endpoint", subscription.endpoint).eq("user_id", session.userId)
+      : await db.from("push_subscriptions").insert({ ...record, id: randomUUID(), user_id: session.userId });
+    checkDb(result.error);
+    return NextResponse.json({ ok: true, storedInSupabase: true });
+  } catch (error) {
+    return routeError(error);
+  }
+}
 
-    if (!userId || !subscription?.endpoint || !subscription?.keys?.p256dh) {
-      return NextResponse.json(
-        { error: "Missing userId or valid PushSubscription object" },
-        { status: 400 }
-      );
-    }
-
-    const subRecord = {
-      userId,
-      endpoint: subscription.endpoint,
-      keys: {
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
-      },
-      userAgent: userAgent || "",
-      createdAt: new Date().toISOString(),
-    };
-
-    const store = getLocalPushStore();
-    store.set(subscription.endpoint, subRecord);
-
-    writeServerDb((db) => {
-      const filtered = db.pushSubscriptions.filter(
-        (s) => s.endpoint !== subscription.endpoint
-      );
-      return {
-        ...db,
-        pushSubscriptions: [...filtered, subRecord],
-      };
-    });
-
-    const supabase = getServiceSupabase();
-    const schemaReady = await checkSupabaseTablesReady();
-    if (supabase && schemaReady) {
-      await supabase.from("push_subscriptions").upsert(
-        {
-          id: `sub-${Buffer.from(subscription.endpoint)
-            .toString("base64url")
-            .slice(-24)}`,
-          user_id: userId,
-          endpoint: subscription.endpoint,
-          p256dh: subscription.keys.p256dh,
-          auth: subscription.keys.auth,
-          user_agent: userAgent || null,
-        },
-        { onConflict: "endpoint" }
-      );
-    }
-
-    return NextResponse.json({
-      ok: true,
-      storedInSupabase: Boolean(supabase && schemaReady),
-    });
-  } catch (err) {
-    console.error("Error saving push subscription:", err);
-    return NextResponse.json(
-      { error: "Failed to save subscription" },
-      { status: 500 }
-    );
+export async function DELETE(request: Request) {
+  try {
+    const session = await requireSession();
+    const body = await readJson(request);
+    const endpoint = validatePushEndpoint(body.endpoint);
+    const { error } = await requireDb().from("push_subscriptions").delete().eq("endpoint", endpoint).eq("user_id", session.userId);
+    checkDb(error);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return routeError(error);
   }
 }

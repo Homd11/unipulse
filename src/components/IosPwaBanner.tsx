@@ -138,7 +138,7 @@ export default function IosPwaBanner({
             {isPushGranted ? (
               <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[11px] font-semibold text-[#059669] dark:text-[#10B981] bg-[#059669]/10 border border-[#059669]/25 px-2.5 py-1 rounded-md">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#059669] dark:bg-[#10B981]" />
-                {isAr ? "التنبيهات: شغّالة (كل ساعتين)" : "PUSH ENGINE: ARMED (2H LOOP)"}
+                {isAr ? "سماح إشعارات المتصفح: مفعّل" : "BROWSER NOTIFICATION PERMISSION: ALLOWED"}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 font-mono-tabular text-[11px] font-semibold text-[#EA580C] bg-[#EA580C]/10 border border-[#EA580C]/25 px-2.5 py-1 rounded-md">

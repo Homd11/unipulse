@@ -1,4 +1,3 @@
-import { hashPin } from "@/lib/auth";
 import {
   DEMO_USERS,
   INITIAL_GROUPS,
@@ -19,13 +18,14 @@ export interface MemoryDatabaseSchema {
   updatedAt: string;
 }
 
-const DEFAULT_PIN_HASH = hashPin("1234");
+const DEFAULT_PIN_HASH = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4";
 
 const globalForDb = globalThis as unknown as {
   __unipulseMemDb?: MemoryDatabaseSchema;
 };
 
 export function readServerDb(): MemoryDatabaseSchema {
+  if (process.env.NODE_ENV === "production") throw new Error("Memory storage is disabled in production.");
   if (!globalForDb.__unipulseMemDb) {
     globalForDb.__unipulseMemDb = {
       users: DEMO_USERS.map((u) => ({

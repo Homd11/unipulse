@@ -1,153 +1,32 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
-import { getServiceSupabase } from "@/lib/supabase";
-import { checkSupabaseTablesReady } from "@/lib/supabase-data";
-import { writeServerDb } from "@/lib/server-db";
-import { TaskAttachment, TaskCategory, TaskItem } from "@/types/app";
+import { ApiError, checkDb, readJson, requireDb, requireSession, routeError, textField } from "@/lib/api";
+import { requireGroupAccess } from "@/lib/access";
+import { taskFields } from "@/lib/task-input";
+import { validatePendingAttachment } from "@/lib/uploads";
 
 export async function POST(request: Request) {
   try {
-    const session = await getSessionUser();
-    if (!session) {
-      return NextResponse.json(
-        { ok: false, error: "Sign in with your 4-digit PIN first." },
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
-    const {
-      title,
-      description = "",
-      groupId = null,
-      category = "assignment",
-      dueInHours = 24,
-      dueAt,
-      reminderIntervalMinutes = 120,
-      claimImmediately = true,
-      attachment = null,
-    } = body as {
-      title: string;
-      description?: string;
-      groupId?: string | null;
-      category?: TaskCategory;
-      dueInHours?: number;
-      dueAt?: string;
-      reminderIntervalMinutes?: number;
-      claimImmediately?: boolean;
-      attachment?: TaskAttachment | null;
-    };
-
-    if (!title?.trim()) {
-      return NextResponse.json(
-        { ok: false, error: "Task title is required." },
-        { status: 400 }
-      );
-    }
-
-    const newTaskId = `task-${Date.now()}`;
-    const nowIso = new Date().toISOString();
-    const dueIso =
-      dueAt && !isNaN(new Date(dueAt).getTime())
-        ? new Date(dueAt).toISOString()
-        : new Date(Date.now() + (dueInHours || 24) * 3600_000).toISOString();
-    const nextPingIso = new Date(
-      Date.now() + (reminderIntervalMinutes || 120) * 60_000
-    ).toISOString();
-
-    const supabase = getServiceSupabase();
-    const schemaReady = await checkSupabaseTablesReady();
-
-    if (supabase && schemaReady) {
-      // 1. Atomic SQL INSERT into public.tasks
-      const { error: taskErr } = await supabase.from("tasks").insert({
-        id: newTaskId,
-        group_id: groupId ?? null,
-        title: title.trim(),
-        description: description.trim(),
-        category: groupId === null ? "personal" : category,
-        due_at: dueIso,
-        reminder_interval_mins: reminderIntervalMinutes,
-        created_by: session.userId,
-      });
-
-      if (taskErr) {
-        return NextResponse.json(
-          { ok: false, error: taskErr.message },
-          { status: 500 }
-        );
-      }
-
-      // 2. Atomic SQL UPSERT into public.task_statuses if claimed
-      if (claimImmediately || groupId === null) {
-        await supabase.from("task_statuses").upsert(
-          {
-            task_id: newTaskId,
-            user_id: session.userId,
-            status: "on_me",
-            reminder_interval_mins: reminderIntervalMinutes,
-            next_reminder_at: nextPingIso,
-            updated_at: nowIso,
-          },
-          { onConflict: "task_id,user_id" }
-        );
-      }
-
-      // 3. Atomic SQL INSERT into public.task_attachments if file uploaded
-      if (attachment) {
-        await supabase.from("task_attachments").insert({
-          id: attachment.id || `att-${Date.now()}`,
-          task_id: newTaskId,
-          file_name: attachment.fileName,
-          file_url: attachment.fileUrl,
-          file_type: attachment.fileType || "application/octet-stream",
-          file_size: attachment.fileSize || 0,
-          uploaded_by: session.userId,
-        });
-      }
-
-      return NextResponse.json({ ok: true, createdTaskId: newTaskId });
-    }
-
-    // Fallback before schema.sql is run
-    writeServerDb((db) => {
-      const newTask: TaskItem = {
-        id: newTaskId,
-        groupId: groupId ?? null,
-        createdBy: session.userId,
-        creatorName: session.name,
-        title: title.trim(),
-        description: description.trim(),
-        category: groupId === null ? "personal" : category,
-        dueAt: dueIso,
-        defaultReminderMinutes: reminderIntervalMinutes,
-        createdAt: nowIso,
-        attachments: attachment ? [{ ...attachment, taskId: newTaskId }] : [],
-        comments: [],
-        memberStatuses: [
-          {
-            taskId: newTaskId,
-            userId: session.userId,
-            userName: session.name,
-            userColor: session.avatarColor,
-            involvement: claimImmediately ? "on_me" : "unassigned",
-            status: "todo",
-            reminderIntervalMinutes,
-            lastRemindedAt: null,
-            nextReminderAt: claimImmediately ? nextPingIso : null,
-            completedAt: null,
-          },
-        ],
-      };
-      return { ...db, tasks: [newTask, ...db.tasks] };
+    const session = await requireSession();
+    const body = await readJson(request);
+    const fields = taskFields(body);
+    const db = requireDb();
+    const groupId = body.groupId == null ? null : textField(body.groupId, "Group ID", 100);
+    if (groupId) await requireGroupAccess(db, groupId, session.userId);
+    if (body.claimImmediately !== undefined && typeof body.claimImmediately !== "boolean") throw new ApiError(400, "Invalid claim option.");
+    const id = `task-${randomUUID()}`;
+    const now = new Date().toISOString();
+    const interval = Number(fields.reminder_interval_mins);
+    const attachment = body.attachment ? validatePendingAttachment(body.attachment, session.userId) : null;
+    const { error } = await db.rpc("create_task", {
+      p_task: { ...fields, id, group_id: groupId, created_by: session.userId, created_at: now, category: groupId ? fields.category : "personal" },
+      p_status: body.claimImmediately !== false || !groupId ? {
+        task_id: id, user_id: session.userId, status: "on_me", reminder_interval_mins: interval,
+        next_reminder_at: new Date(Date.now() + interval * 60_000).toISOString(), updated_at: now,
+      } : null,
+      p_attachment: attachment ? { ...attachment, task_id: id } : null,
     });
-
-    return NextResponse.json({ ok: true, createdTaskId: newTaskId });
-  } catch (err) {
-    console.error("POST /api/tasks error:", err);
-    return NextResponse.json(
-      { ok: false, error: "Failed to create task" },
-      { status: 500 }
-    );
-  }
+    checkDb(error);
+    return NextResponse.json({ ok: true, createdTaskId: id });
+  } catch (error) { return routeError(error); }
 }

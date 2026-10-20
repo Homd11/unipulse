@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -32,10 +32,10 @@ interface TaskCardProps {
   task: TaskItem;
   currentUser: UserProfile;
   group?: StudyGroup;
-  onClaimOnMe: (taskId: string, intervalMinutes?: number) => void;
-  onSkipTask: (taskId: string) => void;
-  onToggleDone: (taskId: string) => void;
-  onChangeInterval: (taskId: string, intervalMinutes: number) => void;
+  onClaimOnMe: (taskId: string, intervalMinutes?: number) => Promise<void>;
+  onSkipTask: (taskId: string) => Promise<void>;
+  onToggleDone: (taskId: string) => Promise<void>;
+  onChangeInterval: (taskId: string, intervalMinutes: number) => Promise<void>;
   onOpenDetail: (taskId: string) => void;
 }
 
@@ -158,6 +158,17 @@ export default function TaskCard({
   onOpenDetail,
 }: TaskCardProps) {
   const { lang, isAr } = useLanguage();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const runAction = async (action: () => Promise<void>) => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try { await action(); }
+    catch (err) { setError(err instanceof Error ? err.message : (isAr ? "العملية متحفظتش. جرّب تاني." : "Changes were not saved. Please retry.")); }
+    finally { setPending(false); }
+  };
+
 
   const myStatus = task.memberStatuses.find(
     (s) => s.userId === currentUser.id
@@ -197,6 +208,7 @@ export default function TaskCard({
           : "border-[var(--border-subtle)]"
       }`}
     >
+      {error && <p role="alert" className="px-4 py-2 text-xs text-[#DC2626]">{error}</p>}
       {/* Architectural Status Rail (start-0 adapts automatically to LTR / RTL) */}
       <div
         className={`absolute start-0 top-0 bottom-0 w-1.5 ${leftRailColor}`}
@@ -444,7 +456,8 @@ export default function TaskCard({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => onClaimOnMe(task.id, 120)}
+                  onClick={() => void runAction(() => onClaimOnMe(task.id, 120))}
+                  disabled={pending}
                   className="min-h-[40px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#111315] hover:bg-[#272B30] text-white dark:bg-white dark:text-[#111315] dark:hover:bg-[#E5E7EB] text-xs font-bold transition cursor-pointer active:scale-[0.98]"
                 >
                   <BellRing
@@ -456,7 +469,8 @@ export default function TaskCard({
                 {!isSkipped && (
                   <button
                     type="button"
-                    onClick={() => onSkipTask(task.id)}
+                    onClick={() => void runAction(() => onSkipTask(task.id))}
+                    disabled={pending}
                     className="min-h-[40px] inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-[var(--bg-subtle)] hover:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[var(--text-secondary)] text-xs font-semibold transition cursor-pointer active:scale-[0.98]"
                   >
                     <X className="w-3.5 h-3.5" aria-hidden="true" />
@@ -481,7 +495,7 @@ export default function TaskCard({
                       aria-label="Reminder interval"
                       value={intervalMins}
                       onChange={(e) =>
-                        onChangeInterval(task.id, Number(e.target.value))
+                        void runAction(() => onChangeInterval(task.id, Number(e.target.value)))
                       }
                       className="bg-transparent font-mono-tabular text-xs font-bold text-[var(--text-primary)] focus:outline-none cursor-pointer"
                     >
@@ -507,7 +521,8 @@ export default function TaskCard({
                 {task.groupId !== null && !isDoneForMe && (
                   <button
                     type="button"
-                    onClick={() => onSkipTask(task.id)}
+                    onClick={() => void runAction(() => onSkipTask(task.id))}
+                    disabled={pending}
                     className="min-h-[36px] px-2 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] underline cursor-pointer"
                   >
                     {isAr ? "شيله من عليّا" : "Remove from my queue"}
@@ -529,7 +544,8 @@ export default function TaskCard({
                 )}
                 <button
                   type="button"
-                  onClick={() => onToggleDone(task.id)}
+                  onClick={() => void runAction(() => onToggleDone(task.id))}
+                  disabled={pending}
                   className={`min-h-[40px] inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition cursor-pointer active:scale-[0.98] ${
                     isDoneForMe
                       ? "bg-[var(--bg-subtle)] hover:bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-strong)]"

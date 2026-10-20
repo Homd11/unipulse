@@ -1,259 +1,84 @@
 import { NextResponse } from "next/server";
-import webpush from "web-push";
-import { getServiceSupabase } from "@/lib/supabase";
-import { checkSupabaseTablesReady } from "@/lib/supabase-data";
-import { readServerDb, writeServerDb } from "@/lib/server-db";
-import {
-  getLocalPushStore,
-  PRIVATE_VAPID_KEY,
-  PUBLIC_VAPID_KEY,
-  VAPID_SUBJECT,
-} from "@/lib/vapid";
+import { ApiError, checkDb, rateLimit, readJson, requireDb, requireSession, routeError } from "@/lib/api";
+import { hasSchedulerAuthorization, isWithinQuietHours, requireSchedulerAuthorization } from "@/lib/reminders";
+import { requirePushConfiguration, sendStoredPush } from "@/lib/push-server";
 
-webpush.setVapidDetails(VAPID_SUBJECT, PUBLIC_VAPID_KEY, PRIVATE_VAPID_KEY);
-
-function isWithinQuietHours(
-  nowDate: Date,
-  quietStart?: string | null,
-  quietEnd?: string | null
-): boolean {
-  if (!quietStart || !quietEnd) return false;
-  const currentMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
-  const [startH, startM] = quietStart.split(":").map(Number);
-  const [endH, endM] = quietEnd.split(":").map(Number);
-  if (isNaN(startH) || isNaN(endH)) return false;
-
-  const startTotal = startH * 60 + (startM || 0);
-  const endTotal = endH * 60 + (endM || 0);
-
-  if (startTotal <= endTotal) {
-    return currentMinutes >= startTotal && currentMinutes < endTotal;
-  }
-  return currentMinutes >= startTotal || currentMinutes < endTotal;
+interface ReminderClaim {
+  task_id: string;
+  user_id: string;
+  status: string;
+  reminder_interval_mins: number;
+  next_reminder_at: string;
+  tasks: { id: string; title: string; group_id: string | null; created_by: string };
+  users: { quiet_hours_start: string | null; quiet_hours_end: string | null };
 }
 
 export async function GET(request: Request) {
-  return handleCronReminders(request);
+  try {
+    requireSchedulerAuthorization(request);
+    return await dispatchReminders(null, false);
+  } catch (error) { return routeError(error); }
 }
 
 export async function POST(request: Request) {
-  return handleCronReminders(request);
+  try {
+    if (hasSchedulerAuthorization(request)) return await dispatchReminders(null, false);
+    const session = await requireSession();
+    const body = request.body ? await readJson(request) : {};
+    for (const field of ["forceUserId", "userId"]) {
+      if (body[field] !== undefined && body[field] !== session.userId) throw new ApiError(403, "Only your own reminders can be requested");
+    }
+    await rateLimit(`manual-reminders:${session.userId}`, 1, 60);
+    return await dispatchReminders(session.userId, true);
+  } catch (error) { return routeError(error); }
 }
 
-async function handleCronReminders(request: Request) {
-  try {
-    const now = new Date();
-    const nowMs = now.getTime();
-    const supabase = getServiceSupabase();
-    const schemaReady = await checkSupabaseTablesReady();
-
-    let forceImmediateForUser: string | null = null;
-    if (request.method === "POST") {
-      try {
-        const parsed = await request.json();
-        if (parsed?.forceUserId) {
-          forceImmediateForUser = parsed.forceUserId;
-        }
-      } catch {
-        // Empty body from Vercel Cron / cron-job.org / pg_cron is fine
+async function dispatchReminders(userId: string | null, force: boolean) {
+  requirePushConfiguration();
+  const db = requireDb();
+  const now = new Date();
+  const { data, error } = await db.rpc("claim_due_reminders", {
+    p_now: now.toISOString(), p_user_id: userId, p_force: force,
+    p_timezone: process.env.REMINDER_TIMEZONE || "Africa/Cairo",
+  });
+  checkDb(error);
+  if (!Array.isArray(data)) throw new ApiError(503, "Unable to claim reminders");
+  const rows = data as ReminderClaim[];
+  let dispatched = 0; let failed = 0; let expired = 0;
+  const processedTaskIds: string[] = [];
+  async function dispatchRow(row: ReminderClaim) {
+    if (row.status !== "on_me" || (userId && row.user_id !== userId)) return;
+    const task = row.tasks;
+    if (!task || task.id !== row.task_id || !row.users) return;
+    if (isWithinQuietHours(now, row.users.quiet_hours_start, row.users.quiet_hours_end)) return;
+    // Recheck access and completion after the atomic claim, before contacting the provider.
+    if (task.group_id) {
+      const { data: membership, error: membershipError } = await db.from("group_members").select("user_id").eq("group_id", task.group_id).eq("user_id", row.user_id).maybeSingle();
+      checkDb(membershipError);
+      if (!membership) {
+        const { data: group, error: groupError } = await db.from("groups").select("created_by").eq("id", task.group_id).maybeSingle();
+        checkDb(groupError);
+        if (!group || group.created_by !== row.user_id) return;
       }
-    }
-
-    let dispatched = 0;
-    const processedTaskIds: string[] = [];
-
-    // 1. Relational Supabase Production Cron Loop
-    if (supabase && schemaReady) {
-      let query = supabase
-        .from("task_statuses")
-        .select(
-          `
-          task_id,
-          user_id,
-          status,
-          reminder_interval_mins,
-          next_reminder_at,
-          tasks ( id, title, due_at, category, group_id ),
-          users ( id, name, quiet_hours_start, quiet_hours_end )
-        `
-        )
-        .eq("status", "on_me");
-
-      if (forceImmediateForUser) {
-        query = query.eq("user_id", forceImmediateForUser);
-      } else {
-        query = query.lte("next_reminder_at", now.toISOString());
-      }
-
-      const { data: dueRows, error } = await query;
-
-      if (!error && dueRows) {
-        for (const row of dueRows) {
-          const userObj = Array.isArray(row.users) ? row.users[0] : row.users;
-          const taskObj = Array.isArray(row.tasks) ? row.tasks[0] : row.tasks;
-
-          if (!taskObj) continue;
-
-          if (
-            !forceImmediateForUser &&
-            userObj &&
-            isWithinQuietHours(
-              now,
-              userObj.quiet_hours_start,
-              userObj.quiet_hours_end
-            )
-          ) {
-            continue;
-          }
-
-          const { data: subs } = await supabase
-            .from("push_subscriptions")
-            .select("endpoint, p256dh, auth")
-            .eq("user_id", row.user_id);
-
-          const intervalMins = row.reminder_interval_mins || 120;
-          const intervalLabel =
-            intervalMins >= 60 ? `${intervalMins / 60}h` : `${intervalMins}m`;
-
-          const payload = JSON.stringify({
-            title: `Still On You: ${taskObj.title}`,
-            body: `This task is still unfinished! Pinging you every ${intervalLabel} until you mark it Done.`,
-            taskId: taskObj.id,
-            tag: `task-${taskObj.id}`,
-            url: `/?tab=on-me&taskId=${taskObj.id}`,
-          });
-
-          if (subs && subs.length > 0) {
-            for (const sub of subs) {
-              try {
-                await webpush.sendNotification(
-                  {
-                    endpoint: sub.endpoint,
-                    keys: { p256dh: sub.p256dh, auth: sub.auth },
-                  },
-                  payload
-                );
-                dispatched++;
-              } catch {
-                // Ignore expired endpoints during batch
-              }
-            }
-          }
-
-          const nextPing = new Date(
-            nowMs + intervalMins * 60 * 1000
-          ).toISOString();
-
-          await supabase
-            .from("task_statuses")
-            .update({
-              last_reminded_at: now.toISOString(),
-              next_reminder_at: nextPing,
-              updated_at: now.toISOString(),
-            })
-            .eq("task_id", row.task_id)
-            .eq("user_id", row.user_id);
-
-          processedTaskIds.push(taskObj.id);
-        }
-      }
-
-      return NextResponse.json({
-        ok: true,
-        mode: "supabase-relational",
-        checkedAt: now.toISOString(),
-        dispatchedNotifications: dispatched,
-        processedTaskIds,
-      });
-    }
-
-    // 2. Fallback loop before supabase/schema.sql is run
-    const db = readServerDb();
-    const localStore = getLocalPushStore();
-    const allSubs = [...db.pushSubscriptions];
-    for (const memSub of localStore.values()) {
-      if (!allSubs.some((s) => s.endpoint === memSub.endpoint)) {
-        allSubs.push(memSub);
-      }
-    }
-
-    for (const task of db.tasks) {
-      const grp = db.groups.find((g) => g.id === task.groupId);
-      const courseTag = grp?.courseCode || "PRIVATE";
-
-      for (const st of task.memberStatuses) {
-        if (st.involvement !== "on_me" || st.status === "done") continue;
-
-        const isDue =
-          forceImmediateForUser === st.userId ||
-          !st.nextReminderAt ||
-          new Date(st.nextReminderAt).getTime() <= nowMs;
-
-        if (!isDue) continue;
-
-        const intervalMins = st.reminderIntervalMinutes || 120;
-        const intervalLabel =
-          intervalMins >= 60 ? `${intervalMins / 60}h` : `${intervalMins}m`;
-
-        const payload = JSON.stringify({
-          title: `[${courseTag}] Still On You: ${task.title}`,
-          body: `Pinging you every ${intervalLabel} until you mark this task Done.`,
-          taskId: task.id,
-          tag: `task-${task.id}`,
-          url: `/?tab=on-me&taskId=${task.id}`,
-        });
-
-        const userSubs = allSubs.filter((s) => s.userId === st.userId);
-        for (const sub of userSubs) {
-          try {
-            await webpush.sendNotification(
-              { endpoint: sub.endpoint, keys: sub.keys },
-              payload
-            );
-            dispatched++;
-          } catch {
-            // Ignore
-          }
-        }
-        processedTaskIds.push(task.id);
-      }
-    }
-
-    if (processedTaskIds.length > 0) {
-      writeServerDb((curr) => ({
-        ...curr,
-        tasks: curr.tasks.map((t) => {
-          if (!processedTaskIds.includes(t.id)) return t;
-          return {
-            ...t,
-            memberStatuses: t.memberStatuses.map((st) => {
-              if (st.involvement !== "on_me" || st.status === "done") return st;
-              const interval = st.reminderIntervalMinutes || 120;
-              return {
-                ...st,
-                lastRemindedAt: now.toISOString(),
-                nextReminderAt: new Date(
-                  nowMs + interval * 60_000
-                ).toISOString(),
-              };
-            }),
-          };
-        }),
-      }));
-    }
-
-    return NextResponse.json({
-      ok: true,
-      mode: "fallback",
-      checkedAt: now.toISOString(),
-      dispatchedNotifications: dispatched,
-      processedTaskIds,
+    } else if (task.created_by !== row.user_id) return;
+    const { data: status, error: statusError } = await db.from("task_statuses").select("status").eq("task_id", row.task_id).eq("user_id", row.user_id).maybeSingle();
+    checkDb(statusError);
+    if (!status || status.status !== "on_me") return;
+    const interval = row.reminder_interval_mins || 120;
+    const payload = JSON.stringify({
+      title: `Still On You: ${task.title}`,
+      body: `This task is unfinished. Reminders repeat every ${interval} minutes until you mark it Done.`,
+      taskId: task.id, tag: `task-${task.id}`,
+      url: `/?tab=on-me&taskId=${encodeURIComponent(task.id)}`,
     });
-  } catch (err) {
-    console.error("Cron reminder error:", err);
-    return NextResponse.json(
-      { error: "Cron reminder execution failed" },
-      { status: 500 }
-    );
+    const result = await sendStoredPush(db, row.user_id, payload, 1);
+    dispatched += result.sentCount; failed += result.failedCount; expired += result.expiredCount;
+    processedTaskIds.push(task.id);
   }
+  let nextRow = 0;
+  const worker = async () => { while (nextRow < rows.length) await dispatchRow(rows[nextRow++]); };
+  const workers = await Promise.allSettled(Array.from({ length: Math.min(5, rows.length) }, worker));
+  const failure = workers.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
+  return NextResponse.json({ ok: failed === 0, checkedAt: now.toISOString(), dispatchedNotifications: dispatched, failedNotifications: failed, expiredSubscriptions: expired, processedTaskIds }, { status: failed ? 503 : 200 });
 }

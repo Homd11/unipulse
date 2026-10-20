@@ -55,7 +55,6 @@ export default function ProfileModal({
   open,
   forceOpen = false,
   onClose,
-  users,
   authenticatedUser,
   onLogin,
   onRegister,
@@ -67,12 +66,7 @@ export default function ProfileModal({
   pushFeedback = null,
 }: ProfileModalProps) {
   const { isAr } = useLanguage();
-  const [mode, setMode] = useState<"signin" | "signup">(
-    users.length === 0 ? "signup" : "signin"
-  );
-  const [selectedUserId, setSelectedUserId] = useState<string>(
-    users[0]?.id || ""
-  );
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [signinCollegeId, setSigninCollegeId] = useState("");
   const [pin, setPin] = useState("");
 
@@ -92,34 +86,29 @@ export default function ProfileModal({
   const [quietSaved, setQuietSaved] = useState(false);
 
   useEffect(() => {
-    if (users.length === 0) {
-      setMode("signup");
-    } else if (!selectedUserId && users[0]?.id) {
-      setSelectedUserId(users[0].id);
-    }
-  }, [users, selectedUserId]);
-
-  useEffect(() => {
     if (authenticatedUser) {
       setQuietStart(authenticatedUser.quietHoursStart || "01:00");
       setQuietEnd(authenticatedUser.quietHoursEnd || "08:00");
     }
-  }, [authenticatedUser]);
+  // Unchanged server snapshots must not overwrite quiet hours being edited.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticatedUser?.id, authenticatedUser?.quietHoursStart, authenticatedUser?.quietHoursEnd]);
 
   if (!open && !forceOpen) return null;
 
   const submitSignIn = async () => {
+    if (loading) return;
     setErrorMsg(null);
     const cleanCollege = signinCollegeId
       .trim()
       .toUpperCase()
       .replace(/[^A-Z0-9-]/g, "");
 
-    if (!cleanCollege && !selectedUserId) {
+    if (!cleanCollege) {
       setErrorMsg(
         isAr
-          ? "اكتب الـ ID الجامعي بتاعك أو اختار اسمك."
-          : "Enter your College ID or select your name."
+          ? "اكتب الـ ID الجامعي بتاعك."
+          : "Enter your College ID."
       );
       return;
     }
@@ -130,25 +119,26 @@ export default function ProfileModal({
       return;
     }
     setLoading(true);
-    const res = cleanCollege
-      ? await onLogin(cleanCollege, pin.trim(), true)
-      : await onLogin(selectedUserId, pin.trim(), false);
-    setLoading(false);
-    if (!res.ok) {
-      setErrorMsg(
-        res.error ||
-          (isAr
-            ? "الـ ID الجامعي أو الـ PIN غلط."
-            : "Invalid College ID or 4-digit PIN.")
-      );
-    } else {
-      setPin("");
-      setSigninCollegeId("");
-      onClose();
-    }
+    try {
+      const res = await onLogin(cleanCollege, pin.trim(), true);
+      if (!res.ok) {
+        setErrorMsg(
+          res.error ||
+            (isAr
+              ? "الـ ID الجامعي أو الـ PIN غلط."
+              : "Invalid College ID or 4-digit PIN.")
+        );
+      } else {
+        setPin("");
+        setSigninCollegeId("");
+        onClose();
+      }
+    } catch (err) { setErrorMsg(err instanceof Error ? err.message : "Could not sign in. Please retry."); }
+    finally { setLoading(false); }
   };
 
   const submitSignUp = async () => {
+    if (loading) return;
     setErrorMsg(null);
     const cleanCollege = newCollegeId
       .trim()
@@ -180,28 +170,32 @@ export default function ProfileModal({
       return;
     }
     setLoading(true);
-    const res = await onRegister(
-      cleanCollege,
-      newName.trim(),
-      newPin.trim(),
-      avatarColor
-    );
-    setLoading(false);
-    if (!res.ok) {
-      setErrorMsg(res.error || (isAr ? "حصلت مشكلة في التسجيل." : "Registration failed."));
-    } else {
-      setNewCollegeId("");
-      setNewName("");
-      setNewPin("");
-      onClose();
-    }
+    try {
+      const res = await onRegister(
+        cleanCollege,
+        newName.trim(),
+        newPin.trim(),
+        avatarColor
+      );
+      if (!res.ok) {
+        setErrorMsg(res.error || (isAr ? "حصلت مشكلة في التسجيل." : "Registration failed."));
+      } else {
+        setNewCollegeId("");
+        setNewName("");
+        setNewPin("");
+        onClose();
+      }
+    } catch (err) { setErrorMsg(err instanceof Error ? err.message : "Could not register. Please retry."); }
+    finally { setLoading(false); }
   };
 
   const handleSaveQuietHours = async () => {
     if (!onUpdateQuietHours) return;
-    await onUpdateQuietHours(quietStart, quietEnd);
-    setQuietSaved(true);
-    setTimeout(() => setQuietSaved(false), 1800);
+    try {
+      await onUpdateQuietHours(quietStart, quietEnd);
+      setQuietSaved(true);
+      setTimeout(() => setQuietSaved(false), 1800);
+    } catch (err) { setErrorMsg(err instanceof Error ? err.message : "Could not save quiet hours."); }
   };
 
   return (
@@ -278,7 +272,11 @@ export default function ProfileModal({
               <button
                 type="button"
                 onClick={async () => {
-                  await onLogout();
+                  if (loading) return;
+                  setLoading(true);
+                  try { await onLogout(); }
+                  catch (err) { setErrorMsg(err instanceof Error ? err.message : "Could not sign out."); }
+                  finally { setLoading(false); }
                 }}
                 className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-xs font-bold text-[#DC2626] cursor-pointer shrink-0"
               >
@@ -416,7 +414,7 @@ export default function ProfileModal({
         </div>
 
         {errorMsg && (
-          <div className="mb-4 p-3 rounded-xl bg-[#DC2626]/10 border border-[#DC2626]/30 text-xs font-semibold text-[#DC2626]">
+          <div role="alert" className="mb-4 p-3 rounded-xl bg-[#DC2626]/10 border border-[#DC2626]/30 text-xs font-semibold text-[#DC2626]">
             {errorMsg}
           </div>
         )}
@@ -454,35 +452,6 @@ export default function ProfileModal({
               />
             </div>
 
-            {users.length > 0 && !signinCollegeId.trim() && (
-              <div>
-                <label
-                  htmlFor="signin-user-select"
-                  className="block font-mono-tabular text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5"
-                >
-                  {isAr
-                    ? "أو اختار اسمك من قايمة الدفعة"
-                    : "Or Select Your Name from Batch Roster"}
-                </label>
-                <select
-                  id="signin-user-select"
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="w-full min-h-[42px] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-xl px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[#0D9488]"
-                >
-                  {users.map((u) => (
-                    <option
-                      key={u.id}
-                      value={u.id}
-                      className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                    >
-                      {u.displayName}
-                      {u.collegeId ? ` (ID: ${u.collegeId})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
 
             <div>
               <label

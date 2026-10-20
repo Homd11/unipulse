@@ -31,11 +31,11 @@ interface TaskDetailModalProps {
   group?: StudyGroup;
   currentUser: UserProfile;
   onClose: () => void;
-  onAddComment: (taskId: string, content: string) => void;
-  onUploadAttachment: (taskId: string, file: File) => void;
-  onClaimOnMe: (taskId: string, intervalMinutes?: number) => void;
-  onChangeInterval?: (taskId: string, intervalMinutes: number) => void;
-  onToggleDone: (taskId: string) => void;
+  onAddComment: (taskId: string, content: string) => Promise<void>;
+  onUploadAttachment: (taskId: string, file: File) => Promise<void>;
+  onClaimOnMe: (taskId: string, intervalMinutes?: number) => Promise<void>;
+  onChangeInterval?: (taskId: string, intervalMinutes: number) => Promise<void>;
+  onToggleDone: (taskId: string) => Promise<void>;
   onEditTask?: (
     taskId: string,
     updates: {
@@ -46,7 +46,7 @@ interface TaskDetailModalProps {
       defaultReminderMinutes: number;
     }
   ) => Promise<void>;
-  onDeleteTask?: (taskId: string) => void;
+  onDeleteTask?: (taskId: string) => Promise<void>;
 }
 
 const INTERVAL_OPTIONS = [
@@ -95,6 +95,9 @@ export default function TaskDetailModal({
   const [editDueLocal, setEditDueLocal] = useState("");
   const [editDefaultInterval, setEditDefaultInterval] = useState<number>(120);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const taskId = task?.id;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -107,12 +110,16 @@ export default function TaskDetailModal({
       setEditDueLocal(toLocalDatetimeInputValue(task.dueAt));
       setEditDefaultInterval(task.defaultReminderMinutes || 120);
     }
-  }, [task]);
+    setCommentText("");
+    setError(null);
+  // Refreshing the same task must preserve unsaved fields.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
 
   if (!task) return null;
 
   const canManageTask =
-    task.createdBy === currentUser.id || currentUser.id === "user-you";
+    task.createdBy === currentUser.id;
 
   const myStatus = task.memberStatuses.find(
     (s) => s.userId === currentUser.id
@@ -131,32 +138,49 @@ export default function TaskDetailModal({
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onEditTask || !editTitle.trim()) return;
+    if (!onEditTask || !editTitle.trim() || savingEdit) return;
     setSavingEdit(true);
-    await onEditTask(task.id, {
-      title: editTitle.trim(),
-      description: editDesc.trim(),
-      category: editCategory,
-      dueAt: editDueLocal
-        ? new Date(editDueLocal).toISOString()
-        : task.dueAt,
-      defaultReminderMinutes: editDefaultInterval,
-    });
-    setSavingEdit(false);
-    setIsEditing(false);
+    setError(null);
+    try {
+      await onEditTask(task.id, {
+        title: editTitle.trim(),
+        description: editDesc.trim(),
+        category: editCategory,
+        dueAt: editDueLocal
+          ? new Date(editDueLocal).toISOString()
+          : task.dueAt,
+        defaultReminderMinutes: editDefaultInterval,
+      });
+      setIsEditing(false);
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not save task."); }
+    finally { setSavingEdit(false); }
+  };
+
+  const runAction = async (action: () => Promise<void>) => {
+    if (actionPending) return;
+    setActionPending(true);
+    setError(null);
+    try { await action(); }
+    catch (err) { setError(err instanceof Error ? err.message : (isAr ? "العملية متحفظتش. جرّب تاني." : "Changes were not saved. Please retry.")); }
+    finally { setActionPending(false); }
   };
 
   const handleCommentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText.trim()) return;
-    onAddComment(task.id, commentText.trim());
-    setCommentText("");
+    void runAction(async () => {
+      await onAddComment(task.id, commentText.trim());
+      setCommentText("");
+    });
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      onUploadAttachment(task.id, file);
+      void runAction(async () => {
+        if (file.size > 4 * 1024 * 1024) throw new Error(isAr ? "الملف لازم يكون ٤ ميجا أو أقل." : "Files must be 4 MB or smaller.");
+        await onUploadAttachment(task.id, file);
+      });
       e.target.value = "";
     }
   };
@@ -226,8 +250,7 @@ export default function TaskDetailModal({
               <button
                 type="button"
                 onClick={() => {
-                  onDeleteTask(task.id);
-                  onClose();
+                  void runAction(async () => { await onDeleteTask(task.id); onClose(); });
                 }}
                 aria-label="Delete task"
                 title="Delete task"
@@ -416,7 +439,7 @@ export default function TaskDetailModal({
                   <button
                     type="button"
                     onClick={() =>
-                      onClaimOnMe(task.id, task.defaultReminderMinutes || 120)
+                      void runAction(() => onClaimOnMe(task.id, task.defaultReminderMinutes || 120))
                     }
                     className="min-h-[40px] inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#111315] text-white dark:bg-white dark:text-[#111315] text-xs font-bold cursor-pointer active:scale-[0.98]"
                   >
@@ -429,7 +452,8 @@ export default function TaskDetailModal({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => onToggleDone(task.id)}
+                    onClick={() => void runAction(() => onToggleDone(task.id))}
+                    disabled={actionPending}
                     className={`min-h-[40px] inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer active:scale-[0.98] ${
                       isDoneForMe
                         ? "bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border-strong)]"
@@ -463,7 +487,8 @@ export default function TaskDetailModal({
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => onChangeInterval(task.id, opt.value)}
+                      onClick={() => void runAction(() => onChangeInterval(task.id, opt.value))}
+                      disabled={actionPending}
                       className={`min-h-[32px] px-2.5 py-1 rounded-md font-mono-tabular text-xs font-bold transition cursor-pointer ${
                         myInterval === opt.value
                           ? "bg-[#111315] text-white dark:bg-white dark:text-[#111315]"
@@ -684,6 +709,7 @@ export default function TaskDetailModal({
           </div>
         </div>
 
+        {error && <p role="alert" className="px-4 py-2 text-xs text-[#DC2626]">{error}</p>}
         {/* Comment Input */}
         <form
           onSubmit={handleCommentSubmit}
@@ -692,6 +718,7 @@ export default function TaskDetailModal({
           <input
             type="text"
             value={commentText}
+            disabled={actionPending}
             onChange={(e) => setCommentText(e.target.value)}
             placeholder={
               isAr
@@ -702,7 +729,7 @@ export default function TaskDetailModal({
           />
           <button
             type="submit"
-            disabled={!commentText.trim()}
+            disabled={!commentText.trim() || actionPending}
             aria-label="Send comment"
             className="min-h-[42px] min-w-[42px] flex items-center justify-center rounded-xl bg-[#0D9488] hover:bg-[#0F766E] disabled:opacity-40 text-white transition cursor-pointer"
           >

@@ -32,7 +32,7 @@ interface CreateTaskModalProps {
     reminderIntervalMinutes: number;
     claimImmediately: boolean;
     file: File | null;
-  }) => void;
+  }) => Promise<void>;
 }
 
 export default function CreateTaskModal({
@@ -55,6 +55,8 @@ export default function CreateTaskModal({
     useState<number>(120);
   const [claimImmediately, setClaimImmediately] = useState<boolean>(true);
   const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -68,28 +70,35 @@ export default function CreateTaskModal({
 
   const isPersonal = spaceId === "personal";
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
-    onCreateTask({
-      title: title.trim(),
-      description: description.trim(),
-      groupId: isPersonal ? null : spaceId,
-      category: isPersonal ? "personal" : category,
-      dueInHours: dueInHours > 0 ? dueInHours : 24,
-      dueAt:
-        dueInHours === -1 && customDueLocal
-          ? new Date(customDueLocal).toISOString()
-          : undefined,
-      reminderIntervalMinutes,
-      claimImmediately: isPersonal ? true : claimImmediately,
-      file,
-    });
-    setTitle("");
-    setDescription("");
-    setCustomDueLocal("");
-    setFile(null);
-    onClose();
+    if (!title.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (file && file.size > 4 * 1024 * 1024) throw new Error(isAr ? "الملف لازم يكون ٤ ميجا أو أقل." : "Files must be 4 MB or smaller.");
+      await onCreateTask({
+        title: title.trim(),
+        description: description.trim(),
+        groupId: isPersonal ? null : spaceId,
+        category: isPersonal ? "personal" : category,
+        dueInHours: dueInHours > 0 ? dueInHours : 24,
+        dueAt:
+          dueInHours === -1 && customDueLocal
+            ? new Date(customDueLocal).toISOString()
+            : undefined,
+        reminderIntervalMinutes,
+        claimImmediately: isPersonal ? true : claimImmediately,
+        file,
+      });
+      setTitle("");
+      setDescription("");
+      setCustomDueLocal("");
+      setFile(null);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : (isAr ? "التاسك متحفظش. جرّب تاني." : "Task was not saved. Please retry."));
+    } finally { setSaving(false); }
   };
 
   return (
@@ -114,6 +123,7 @@ export default function CreateTaskModal({
           <button
             type="button"
             onClick={onClose}
+            disabled={saving}
             aria-label="Close modal"
             className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg bg-[var(--bg-subtle)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] cursor-pointer"
           >
@@ -121,7 +131,9 @@ export default function CreateTaskModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+        <form onSubmit={handleSubmit} className="mt-4">
+          <fieldset disabled={saving} className="space-y-4">
+          {error && <p role="alert" className="text-xs text-[#DC2626]">{error}</p>}
           {/* 1. Space Selector */}
           <div>
             <label
@@ -402,6 +414,7 @@ export default function CreateTaskModal({
 
           <button
             type="submit"
+            disabled={saving}
             className="w-full min-h-[44px] py-3 rounded-xl bg-[#0D9488] hover:bg-[#0F766E] text-white font-bold text-sm flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-[0.99]"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" aria-hidden="true" />
@@ -413,6 +426,7 @@ export default function CreateTaskModal({
               ? "نزّل التاسك لجروب المادة"
               : "Publish Task to Group"}
           </button>
+          </fieldset>
         </form>
       </div>
     </div>

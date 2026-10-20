@@ -1,11 +1,6 @@
--- ============================================================================
--- UNIPULSE PRODUCTION SCHEMA (Idempotent Relational Migration)
--- Target Project: https://cpiepahitseyuejctfab.supabase.co
--- Run this entire script in: Supabase Dashboard -> SQL Editor -> New Query
--- ============================================================================
-
-create extension if not exists "uuid-ossp";
-
+-- UniPulse production schema. Run with the Supabase database owner.
+-- No demo users or live deployment credentials are installed by this file.
+-- All application access runs through the session-authorized server service role.
 -- 1. USERS TABLE (Name + 4-Digit PIN Hash Authentication)
 create table if not exists public.users (
   id text primary key,
@@ -92,210 +87,183 @@ create table if not exists public.push_subscriptions (
   created_at timestamptz not null default now()
 );
 
--- Indexes for fast queries & cron scans
+-- Shared, persistent login/register/manual-reminder rate limits.
+create table if not exists public.api_rate_limits (
+  key text primary key,
+  attempts bigint not null default 0 check (attempts >= 0),
+  expires_at timestamptz not null
+);
+
 create index if not exists idx_tasks_group_id on public.tasks(group_id);
 create index if not exists idx_tasks_created_by on public.tasks(created_by);
 create index if not exists idx_task_statuses_due on public.task_statuses(status, next_reminder_at);
 create index if not exists idx_task_comments_task_id on public.task_comments(task_id);
 create index if not exists idx_task_attachments_task_id on public.task_attachments(task_id);
+create index if not exists idx_group_members_user_id on public.group_members(user_id);
+create index if not exists idx_push_subscriptions_user_id on public.push_subscriptions(user_id);
+create index if not exists idx_api_rate_limits_expires_at on public.api_rate_limits(expires_at);
 
--- ============================================================================
--- ROW-LEVEL SECURITY (RLS) & REALTIME CONFIGURATION
--- ============================================================================
-alter table public.users enable row level security;
-alter table public.groups enable row level security;
-alter table public.group_members enable row level security;
-alter table public.tasks enable row level security;
-alter table public.task_statuses enable row level security;
-alter table public.task_comments enable row level security;
-alter table public.task_attachments enable row level security;
-alter table public.push_subscriptions enable row level security;
-
--- Public read policies for Realtime subscriptions on shared entities
--- (Private Vault tasks with group_id IS NULL are protected & filtered by server session)
-drop policy if exists "Allow realtime read on groups" on public.groups;
-create policy "Allow realtime read on groups" on public.groups for select using (true);
-
-drop policy if exists "Allow realtime read on shared tasks" on public.tasks;
-create policy "Allow realtime read on shared tasks" on public.tasks for select using (group_id is not null);
-
-drop policy if exists "Allow realtime read on task_statuses" on public.task_statuses;
-create policy "Allow realtime read on task_statuses" on public.task_statuses for select using (true);
-
-drop policy if exists "Allow realtime read on task_comments" on public.task_comments;
-create policy "Allow realtime read on task_comments" on public.task_comments for select using (true);
-
-drop policy if exists "Allow realtime read on task_attachments" on public.task_attachments;
-create policy "Allow realtime read on task_attachments" on public.task_attachments for select using (true);
-
--- Enable Supabase Realtime on relational tables (idempotent DO block)
+-- Remove browser database access, including inherited Supabase default grants.
+-- Existing rows, including legacy demo rows, are preserved. Production login must
+-- reject demo IDs beginning user- until the operator deactivates/replaces them.
 do $$
+declare
+  app_table text;
+  old_policy record;
 begin
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and tablename = 'tasks'
-  ) then
-    alter publication supabase_realtime add table public.tasks;
-  end if;
+  foreach app_table in array array['users','groups','group_members','tasks','task_statuses','task_comments','task_attachments','push_subscriptions','api_rate_limits'] loop
+    execute format('alter table public.%I enable row level security', app_table);
+    execute format('revoke all privileges on table public.%I from public, anon, authenticated', app_table);
+    execute format('grant all privileges on table public.%I to service_role', app_table);
+    for old_policy in select policyname from pg_policies where schemaname='public' and tablename=app_table loop
+      execute format('drop policy %I on public.%I', old_policy.policyname, app_table);
+    end loop;
+  end loop;
+end $$;
 
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and tablename = 'task_statuses'
-  ) then
-    alter publication supabase_realtime add table public.task_statuses;
-  end if;
-
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and tablename = 'task_comments'
-  ) then
-    alter publication supabase_realtime add table public.task_comments;
-  end if;
-
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and tablename = 'task_attachments'
-  ) then
-    alter publication supabase_realtime add table public.task_attachments;
-  end if;
-
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and tablename = 'groups'
-  ) then
-    alter publication supabase_realtime add table public.groups;
+-- These records are delivered through authorized server polling. Remove the
+-- app's old public realtime publication entries without changing other tables.
+do $$
+declare
+  app_table text;
+begin
+  if exists (select 1 from pg_publication where pubname='supabase_realtime' and not puballtables) then
+    foreach app_table in array array['groups','tasks','task_statuses','task_comments','task_attachments'] loop
+      if exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=app_table) then
+        execute format('alter publication supabase_realtime drop table public.%I', app_table);
+      end if;
+    end loop;
   end if;
 end $$;
 
--- ============================================================================
--- STORAGE BUCKET SETUP (task-files)
--- ============================================================================
-insert into storage.buckets (id, name, public)
-values ('task-files', 'task-files', true)
-on conflict (id) do update set public = true;
-
+-- Store attachment object paths in file_url; issue short-lived signed downloads
+-- after server authorization. Existing object paths/URLs are retained as data.
+insert into storage.buckets (id,name,public) values ('task-files','task-files',false)
+on conflict (id) do update set public=false;
+alter table storage.objects enable row level security;
 drop policy if exists "Public read access for task-files" on storage.objects;
-create policy "Public read access for task-files"
-  on storage.objects for select
-  using (bucket_id = 'task-files');
-
 drop policy if exists "Service role upload access for task-files" on storage.objects;
-create policy "Service role upload access for task-files"
-  on storage.objects for insert
-  with check (bucket_id = 'task-files');
+-- A restrictive policy also defeats older permissive wildcard policies for this
+-- bucket, while preserving the access rules of unrelated buckets.
+drop policy if exists "task-files server access only" on storage.objects;
+create policy "task-files server access only" on storage.objects as restrictive
+  for all to anon, authenticated
+  using (bucket_id <> 'task-files') with check (bucket_id <> 'task-files');
+grant all privileges on storage.buckets, storage.objects to service_role;
 
--- ============================================================================
--- SAFE IDEMPOTENT SEED DATA (Default PIN for demo users: 1234)
--- SHA-256('1234') = 03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4
--- ============================================================================
-insert into public.users (id, name, pin_hash, avatar_color, quiet_hours_start, quiet_hours_end)
-values
-  ('user-you',  'Ahmed',   '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4', '#0D9488', '01:00', '08:00'),
-  ('user-omar', 'Omar K.', '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4', '#10B981', '00:30', '07:30'),
-  ('user-sara', 'Sara M.', '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4', '#EA580C', '01:00', '08:00'),
-  ('user-ziad', 'Ziad T.', '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4', '#0284C7', '02:00', '09:00')
-on conflict (id) do nothing;
+create or replace function public.consume_rate_limit(p_key text, p_limit integer, p_window_seconds integer)
+returns boolean
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  current_attempts bigint;
+  rate_now timestamptz := clock_timestamp();
+begin
+  if p_key is null or length(p_key)=0 or length(p_key)>512 or p_limit is null or p_limit<1 or p_window_seconds is null or p_window_seconds<1 then
+    raise exception 'Invalid rate limit arguments' using errcode='22023';
+  end if;
 
-insert into public.groups (id, name, course_code, invite_code, created_by)
-values
-  ('grp-cs302', 'Operating Systems',    'CS-302',   'OS2026', 'user-omar'),
-  ('grp-se401', 'Software Engineering', 'SE-401',   'SE401X', 'user-you'),
-  ('grp-squad', 'Uni Batch 26 Squad',   'BATCH-26', 'SQUAD9', 'user-sara')
-on conflict (id) do nothing;
+  insert into public.api_rate_limits as rate (key,attempts,expires_at)
+  values (p_key,1,rate_now + make_interval(secs => p_window_seconds))
+  on conflict (key) do update set
+    attempts=case when rate.expires_at<=rate_now then 1 else rate.attempts+1 end,
+    expires_at=case when rate.expires_at<=rate_now then rate_now + make_interval(secs => p_window_seconds) else rate.expires_at end
+  returning attempts into current_attempts;
+  -- Claim this key before cleanup; cleanup skips other callers' locked keys.
+  -- Bounded indexed cleanup; never scans/deletes all expired keys in a request.
+  delete from public.api_rate_limits where key in (
+    select key from public.api_rate_limits where expires_at < rate_now - interval '1 day'
+    order by expires_at limit 100 for update skip locked
+  );
+  return current_attempts<=p_limit;
+end $$;
 
-insert into public.group_members (group_id, user_id)
-values
-  ('grp-cs302', 'user-you'), ('grp-cs302', 'user-omar'), ('grp-cs302', 'user-sara'), ('grp-cs302', 'user-ziad'),
-  ('grp-se401', 'user-you'), ('grp-se401', 'user-omar'), ('grp-se401', 'user-sara'), ('grp-se401', 'user-ziad'),
-  ('grp-squad', 'user-you'), ('grp-squad', 'user-omar'), ('grp-squad', 'user-sara'), ('grp-squad', 'user-ziad')
-on conflict (group_id, user_id) do nothing;
+create or replace function public.create_task(p_task jsonb, p_status jsonb default null, p_attachment jsonb default null)
+returns void
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  if p_status is not null and p_status->>'task_id' is distinct from p_task->>'id' then
+    raise exception 'Initial status must belong to the created task' using errcode='22023';
+  end if;
+  if p_attachment is not null and p_attachment->>'task_id' is distinct from p_task->>'id' then
+    raise exception 'Attachment must belong to the created task' using errcode='22023';
+  end if;
+  insert into public.tasks (id,group_id,title,description,category,due_at,reminder_interval_mins,created_by,created_at)
+  values (p_task->>'id',p_task->>'group_id',p_task->>'title',coalesce(p_task->>'description',''),coalesce(p_task->>'category','assignment'),
+    (p_task->>'due_at')::timestamptz,coalesce((p_task->>'reminder_interval_mins')::integer,120),p_task->>'created_by',coalesce((p_task->>'created_at')::timestamptz,now()));
+  if p_status is not null then
+    insert into public.task_statuses (task_id,user_id,status,reminder_interval_mins,next_reminder_at,updated_at)
+    values (p_task->>'id',p_status->>'user_id',coalesce(p_status->>'status','on_me'),coalesce((p_status->>'reminder_interval_mins')::integer,120),
+      (p_status->>'next_reminder_at')::timestamptz,coalesce((p_status->>'updated_at')::timestamptz,now()));
+  end if;
+  if p_attachment is not null then
+    insert into public.task_attachments (id,task_id,file_name,file_url,file_type,file_size,uploaded_by,created_at)
+    values (p_attachment->>'id',p_task->>'id',p_attachment->>'file_name',p_attachment->>'file_url',coalesce(p_attachment->>'file_type','application/octet-stream'),
+      coalesce((p_attachment->>'file_size')::integer,0),p_attachment->>'uploaded_by',coalesce((p_attachment->>'created_at')::timestamptz,now()));
+  end if;
+end $$;
 
-insert into public.tasks (id, group_id, title, description, category, due_at, reminder_interval_mins, created_by)
-values
-  (
-    'task-os-lab4',
-    'grp-cs302',
-    'Lab 4: Virtual Memory & LRU Page Replacement',
-    'Dr. Khaled mentioned in the last 3 mins of lecture that this is due tomorrow night on Moodle! Submit both C++ source files and the benchmark PDF.',
-    'assignment',
-    now() + interval '18 hours',
-    120,
-    'user-omar'
-  ),
-  (
-    'task-se-quiz2',
-    'grp-se401',
-    'Pop Quiz 2: Sequence Diagrams & Architecture Patterns',
-    'TA confirmed in section 2 that tomorrow''s quiz covers Lecture 5 & 6 (Sequence diagrams + MVC vs Microservices). Attached summary notes below.',
-    'quiz',
-    now() + interval '26 hours',
-    120,
-    'user-sara'
-  ),
-  (
-    'task-squad-slides',
-    'grp-squad',
-    'Graduation Project Pitch Deck — Upload Your 3 Slides',
-    'Each person only needs to finish their assigned part of the architecture & demo deck before Thursday''s supervisor meeting.',
-    'project',
-    now() + interval '42 hours',
-    120,
-    'user-ziad'
-  ),
-  (
-    'task-personal-1',
-    null,
-    'Pay semester lab fee & pick up stamped ID card',
-    'Student affairs office closes at 2:30 PM. Bring receipt PDF on phone.',
-    'personal',
-    now() + interval '14 hours',
-    120,
-    'user-you'
+-- Remove the superseded overload so default-argument calls stay unambiguous.
+drop function if exists public.claim_due_reminders(timestamptz,text,boolean);
+create or replace function public.claim_due_reminders(p_now timestamptz,p_user_id text default null,p_force boolean default false,p_timezone text default 'Africa/Cairo')
+returns table(task_id text,user_id text,status text,reminder_interval_mins integer,next_reminder_at timestamptz,tasks jsonb,users jsonb)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  reminder_local_time time;
+begin
+  if p_now is null or p_force is null or p_timezone is null or p_timezone='' or (p_force and p_user_id is null) then
+    raise exception 'Reminder claims require a timestamp and force claims require a user' using errcode='22023';
+  end if;
+  reminder_local_time := (p_now at time zone p_timezone)::time;
+  return query
+  with due as (
+    select s.task_id,s.user_id
+    from public.task_statuses s
+    join public.tasks t on t.id=s.task_id
+    join public.users reminder_user on reminder_user.id=s.user_id
+    cross join lateral (
+      select
+        case when reminder_user.quiet_hours_start ~ '^([01][0-9]|2[0-3]):[0-5][0-9](:00)?$' then reminder_user.quiet_hours_start::time end as starts_at,
+        case when reminder_user.quiet_hours_end ~ '^([01][0-9]|2[0-3]):[0-5][0-9](:00)?$' then reminder_user.quiet_hours_end::time end as ends_at
+    ) quiet
+    where s.status='on_me'
+      -- Quiet rows stay due: advancing a daily lease here would starve them.
+      and not coalesce(case
+        when quiet.starts_at < quiet.ends_at then reminder_local_time >= quiet.starts_at and reminder_local_time < quiet.ends_at
+        when quiet.starts_at > quiet.ends_at then reminder_local_time >= quiet.starts_at or reminder_local_time < quiet.ends_at
+        else false
+      end,false)
+      and (p_user_id is null or s.user_id=p_user_id)
+      and ((not p_force and s.next_reminder_at<=p_now) or (p_force and (s.last_reminded_at is null or s.last_reminded_at<=p_now-interval '1 minute')))
+      and ((t.group_id is null and t.created_by=s.user_id) or (t.group_id is not null and (
+        exists (select 1 from public.groups g where g.id=t.group_id and g.created_by=s.user_id)
+        or exists (select 1 from public.group_members m where m.group_id=t.group_id and m.user_id=s.user_id)
+      )))
+    order by s.next_reminder_at nulls first,s.task_id,s.user_id
+    limit 100 for update of s skip locked
+  ), claimed as (
+    update public.task_statuses s
+    set last_reminded_at=p_now,next_reminder_at=p_now+make_interval(mins => greatest(30,s.reminder_interval_mins))
+    from due where s.task_id=due.task_id and s.user_id=due.user_id
+    returning s.task_id,s.user_id,s.status,s.reminder_interval_mins,s.next_reminder_at
   )
-on conflict (id) do nothing;
+  select c.task_id,c.user_id,c.status,c.reminder_interval_mins,c.next_reminder_at,
+    jsonb_build_object('id',t.id,'title',t.title,'group_id',t.group_id,'created_by',t.created_by),
+    jsonb_build_object('quiet_hours_start',u.quiet_hours_start,'quiet_hours_end',u.quiet_hours_end)
+  from claimed c join public.tasks t on t.id=c.task_id join public.users u on u.id=c.user_id;
+end $$;
 
-insert into public.task_statuses (task_id, user_id, status, reminder_interval_mins, next_reminder_at)
-values
-  ('task-os-lab4',      'user-you',  'on_me', 120, now() + interval '90 minutes'),
-  ('task-os-lab4',      'user-omar', 'on_me', 120, now() + interval '60 minutes'),
-  ('task-os-lab4',      'user-sara', 'done',  120, null),
-  ('task-os-lab4',      'user-ziad', 'on_me', 60,  now() + interval '30 minutes'),
-  ('task-se-quiz2',     'user-sara', 'done',  120, null),
-  ('task-se-quiz2',     'user-omar', 'on_me', 120, now() + interval '60 minutes'),
-  ('task-squad-slides', 'user-you',  'on_me', 120, now() + interval '45 minutes'),
-  ('task-squad-slides', 'user-ziad', 'done',  120, null),
-  ('task-squad-slides', 'user-omar', 'done',  120, null),
-  ('task-personal-1',   'user-you',  'on_me', 120, now() + interval '60 minutes')
-on conflict (task_id, user_id) do nothing;
-
-insert into public.task_comments (id, task_id, user_id, content)
-values
-  ('com-1', 'task-os-lab4',  'user-omar', 'Guys don''t let this get buried in WhatsApp like Lab 3. Click On Me so it pings you every 2 hrs!'),
-  ('com-2', 'task-os-lab4',  'user-sara', 'Uploaded the starter .cpp file from the TA''s drive above! Just finished mine.'),
-  ('com-3', 'task-se-quiz2', 'user-ziad', 'Wait is Chapter 7 included or only 5 & 6?'),
-  ('com-4', 'task-se-quiz2', 'user-sara', 'Only 5 & 6! I asked Eng. Mahmoud directly after lab.')
-on conflict (id) do nothing;
-
-insert into public.task_attachments (id, task_id, file_name, file_url, file_type, file_size, uploaded_by)
-values
-  ('att-1', 'task-os-lab4',  'CS302_Lab4_Specification.txt', 'https://cpiepahitseyuejctfab.supabase.co/storage/v1/object/public/task-files/CS302_Lab4_Specification.txt', 'text/plain', 560,  'user-omar'),
-  ('att-2', 'task-os-lab4',  'starter_lru_template.cpp',     'https://cpiepahitseyuejctfab.supabase.co/storage/v1/object/public/task-files/starter_lru_template.cpp',     'text/plain', 1180, 'user-sara'),
-  ('att-3', 'task-se-quiz2', 'SE401_Quiz2_Summary_Notes.md', 'https://cpiepahitseyuejctfab.supabase.co/storage/v1/object/public/task-files/SE401_Quiz2_Summary_Notes.md', 'text/markdown', 940, 'user-sara')
-on conflict (id) do nothing;
-
--- ============================================================================
--- OPTIONAL: SUPABASE PG_CRON BACKGROUND TRIGGER (Runs every 10 minutes)
--- Uncomment after deploying to Vercel to trigger /api/cron/reminders from DB:
--- ============================================================================
--- create extension if not exists "pg_cron";
--- create extension if not exists "pg_net";
--- select cron.schedule(
---   'unipulse-reminder-dispatcher',
---   '*/10 * * * *',
---   $$
---   select net.http_post(
---     url := 'https://your-vercel-domain.vercel.app/api/cron/reminders',
---     headers := '{"Content-Type": "application/json", "Authorization": "Bearer unipulse-cron-secret-2026"}'::jsonb
---   );
---   $$
--- );
+revoke all on function public.consume_rate_limit(text,integer,integer) from public,anon,authenticated;
+revoke all on function public.create_task(jsonb,jsonb,jsonb) from public,anon,authenticated;
+revoke all on function public.claim_due_reminders(timestamptz,text,boolean,text) from public,anon,authenticated;
+grant execute on function public.consume_rate_limit(text,integer,integer) to service_role;
+grant execute on function public.create_task(jsonb,jsonb,jsonb) to service_role;
+grant execute on function public.claim_due_reminders(timestamptz,text,boolean,text) to service_role;

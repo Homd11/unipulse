@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -23,17 +23,13 @@ import {
   Users,
 } from "lucide-react";
 import {
-  DEMO_USERS,
-  INITIAL_GROUPS,
-  INITIAL_TASKS,
-} from "@/lib/initial-data";
-import {
   detectPlatformPushState,
+  detachWebPush,
+  syncExistingWebPush,
   PlatformPushState,
   requestAndSubscribeWebPush,
   triggerServerPushNotification,
 } from "@/lib/push-client";
-import { supabase } from "@/lib/supabase";
 import { Language, LanguageContext } from "@/lib/i18n";
 import {
   StudyGroup,
@@ -54,19 +50,33 @@ type ActiveTab = "on-me" | "groups" | "personal";
 const STORAGE_KEY_THEME = "unipulse_theme_v2";
 const STORAGE_KEY_LANG = "unipulse_lang_v1";
 
+class HttpError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
+async function requestJson(url: string, options?: RequestInit) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.ok === false) {
+    throw new HttpError(data?.error || `Request failed (${response.status}). Please retry.`, response.status);
+  }
+  return data;
+}
+
+
 export default function UniPulseApp() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("on-me");
   const [isDark, setIsDark] = useState<boolean>(false);
   const [lang, setLangState] = useState<Language>("ar");
   const isAr = lang === "ar";
 
-  const [users, setUsers] = useState<UserProfile[]>(DEMO_USERS);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [authenticatedUser, setAuthenticatedUser] =
     useState<UserProfile | null>(null);
   const [authLoaded, setAuthLoaded] = useState<boolean>(false);
   const [schemaReady, setSchemaReady] = useState<boolean>(false);
-  const [groups, setGroups] = useState<StudyGroup[]>(INITIAL_GROUPS);
-  const [tasks, setTasks] = useState<TaskItem[]>(INITIAL_TASKS);
+  const [groups, setGroups] = useState<StudyGroup[]>([]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string>("all");
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
@@ -88,6 +98,14 @@ export default function UniPulseApp() {
   const [pushLoading, setPushLoading] = useState(false);
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
   const [cronRunning, setCronRunning] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const stateRequest = useRef(0);
+  const authGeneration = useRef(0);
+  const authPending = useRef(false);
+  const stateAbort = useRef<AbortController | null>(null);
+  const joiningInvite = useRef<string | null>(null);
+
 
   const setLang = useCallback((nextLang: Language) => {
     setLangState(nextLang);
@@ -117,27 +135,55 @@ export default function UniPulseApp() {
     [authenticatedUser, users, isAr]
   );
 
-  // Fetch authoritative relational state from Backend (/api/state)
+  // Only the newest response from the current authentication generation may apply.
   const fetchServerState = useCallback(async () => {
+    const requestId = ++stateRequest.current;
+    const generation = authGeneration.current;
+    stateAbort.current?.abort();
+    const controller = new AbortController();
+    stateAbort.current = controller;
     try {
-      const res = await fetch("/api/state", {
-        cache: "no-store",
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.ok) {
-        setSchemaReady(Boolean(data.schemaReady));
-        if (Array.isArray(data.users)) setUsers(data.users);
-        if (Array.isArray(data.groups)) setGroups(data.groups);
-        if (Array.isArray(data.tasks)) setTasks(data.tasks);
-        setAuthenticatedUser(data.authenticatedUser || null);
+      const data = await requestJson("/api/state", { cache: "no-store", signal: controller.signal });
+      if (requestId !== stateRequest.current || generation !== authGeneration.current) return;
+      setSchemaReady(Boolean(data.schemaReady));
+      setUsers(Array.isArray(data.users) ? data.users : []);
+      setGroups(Array.isArray(data.groups) ? data.groups : []);
+      setTasks(Array.isArray(data.tasks) ? data.tasks : []);
+      setAuthenticatedUser(data.authenticatedUser || null);
+      setConnectionError(null);
+    } catch (err) {
+      if (requestId !== stateRequest.current || generation !== authGeneration.current || controller.signal.aborted) return;
+      if (err instanceof HttpError && err.status === 401) {
+        setAuthenticatedUser(null);
+        setUsers([]);
+        setGroups([]);
+        setTasks([]);
+        setDetailTaskId(null);
+        setShowCreateTaskModal(false);
+        setShowGroupModal(false);
       }
-    } catch {
-      // Keep current state if offline
+      setConnectionError(err instanceof Error ? err.message : "Could not refresh tasks. Please retry.");
     } finally {
-      setAuthLoaded(true);
+      if (requestId === stateRequest.current && generation === authGeneration.current) setAuthLoaded(true);
     }
   }, []);
+
+  const beginAuthChange = () => {
+    ++authGeneration.current;
+    ++stateRequest.current;
+    stateAbort.current?.abort();
+  };
+
+  const clearAccountState = () => {
+    setAuthenticatedUser(null);
+    setUsers([]);
+    setGroups([]);
+    setTasks([]);
+    setSelectedGroupId("all");
+    setDetailTaskId(null);
+    setShowCreateTaskModal(false);
+    setShowGroupModal(false);
+  };
 
   // Initial load, theme setup, language setup, URL params (?join=CODE, ?taskId=...), and SW registration
   useEffect(() => {
@@ -187,12 +233,18 @@ export default function UniPulseApp() {
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
-      navigator.serviceWorker.addEventListener("message", (event) => {
+      const onMessage = (event: MessageEvent) => {
         if (event.data?.type === "NOTIFICATION_CLICKED" && event.data?.taskId) {
           setActiveTab("on-me");
           setDetailTaskId(event.data.taskId);
+          void fetchServerState();
         }
-      });
+      };
+      navigator.serviceWorker.addEventListener("message", onMessage);
+      return () => {
+        navigator.serviceWorker.removeEventListener("message", onMessage);
+        stateAbort.current?.abort();
+      };
     }
   }, [fetchServerState]);
 
@@ -207,7 +259,11 @@ export default function UniPulseApp() {
       setActiveTab("groups");
     }
     if (authenticatedUser) {
-      fetch("/api/groups", {
+      const inviteKey = `${authenticatedUser.id}:${pendingInviteCode}`;
+      if (joiningInvite.current === inviteKey) return;
+      joiningInvite.current = inviteKey;
+      const generation = authGeneration.current;
+      requestJson("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -215,8 +271,8 @@ export default function UniPulseApp() {
           inviteCode: pendingInviteCode,
         }),
       })
-        .then((r) => r.json())
         .then((data) => {
+          if (generation !== authGeneration.current) return;
           if (data?.group?.id) {
             setSelectedGroupId(data.group.id);
             setPushFeedback(
@@ -227,8 +283,10 @@ export default function UniPulseApp() {
             fetchServerState();
           }
         })
-        .catch(() => {})
+        .catch((err) => { setActionError(err instanceof Error ? err.message : "Could not join group. Please retry the invite code."); })
         .finally(() => {
+          if (joiningInvite.current === inviteKey) joiningInvite.current = null;
+          if (generation !== authGeneration.current) return;
           setPendingInviteCode("");
           if (typeof window !== "undefined") {
             const url = new URL(window.location.href);
@@ -246,137 +304,59 @@ export default function UniPulseApp() {
     isAr,
   ]);
 
-  // Subscribe to Supabase Realtime postgres_changes + lightweight fallback heartbeat
-  const isAnyModalOpen =
-    showProfileModal ||
-    showCreateTaskModal ||
-    showGroupModal ||
-    Boolean(detailTaskId);
-
+  // Server sessions are the access boundary. Poll only visible signed-in tabs.
+  const authenticatedUserId = authenticatedUser?.id;
   useEffect(() => {
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleRefresh = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        fetchServerState();
-      }, 450);
+    if (!authenticatedUserId) return;
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible" && !authPending.current) void fetchServerState();
     };
-
-    const channel = supabase
-      ? supabase
-          .channel("unipulse-relational-sync")
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "tasks" },
-            scheduleRefresh
-          )
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "task_statuses" },
-            scheduleRefresh
-          )
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "task_comments" },
-            scheduleRefresh
-          )
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "task_attachments" },
-            scheduleRefresh
-          )
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "groups" },
-            scheduleRefresh
-          )
-          .subscribe()
-      : null;
-
-    const fallbackInterval = setInterval(() => {
-      if (!isAnyModalOpen) {
-        fetchServerState();
-      }
-    }, 25000);
-
+    const interval = setInterval(refreshVisible, 25000);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
     return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      if (channel && supabase) {
-        supabase.removeChannel(channel);
-      }
-      clearInterval(fallbackInterval);
+      clearInterval(interval);
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [fetchServerState, isAnyModalOpen]);
+  }, [authenticatedUserId, fetchServerState]);
 
-  // Authentication Handlers (College ID + Name + 4-Digit PIN)
-  const handleLogin = async (
-    userIdOrCollegeId: string,
-    pin: string,
-    byCollegeId = false
-  ) => {
-    const res = await fetch("/api/auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        byCollegeId
-          ? { action: "LOGIN", collegeId: userIdOrCollegeId, pin }
-          : { action: "LOGIN", userId: userIdOrCollegeId, pin }
-      ),
-    });
-    const data = await res.json();
-    if (data.ok && data.user) {
+  // Serialize authentication requests so browser cookie writes cannot race.
+  const authenticate = async (payload: Record<string, string>) => {
+    if (authPending.current) return { ok: false, error: isAr ? "استنى محاولة الدخول الحالية." : "A sign-in request is already in progress." };
+    authPending.current = true;
+    beginAuthChange();
+    try {
+      const data = await requestJson("/api/auth", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      if (!data.ok || !data.user) throw new Error(data.error || "Could not sign in.");
+      clearAccountState();
       setAuthenticatedUser(data.user);
       await fetchServerState();
+      await syncExistingWebPush().catch((err) => setPushFeedback(err instanceof Error ? err.message : "Could not reconnect notifications."));
       return { ok: true };
-    }
-    return {
-      ok: false,
-      error: data.error || (isAr ? "الـ PIN غلط." : "Invalid 4-digit PIN."),
-    };
+    } catch (err) {
+      await fetchServerState();
+      return { ok: false, error: err instanceof Error ? err.message : "Could not sign in. Please retry." };
+    } finally { authPending.current = false; }
   };
 
-  const handleRegister = async (
-    collegeId: string,
-    name: string,
-    pin: string,
-    avatarColor: string
-  ) => {
-    const res = await fetch("/api/auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "REGISTER",
-        collegeId,
-        name,
-        pin,
-        avatarColor,
-      }),
-    });
-    const data = await res.json();
-    if (data.ok && data.user) {
-      setAuthenticatedUser(data.user);
-      await fetchServerState();
-      return { ok: true };
-    }
-    return {
-      ok: false,
-      error:
-        data.error ||
-        (isAr ? "حصلت مشكلة في التسجيل." : "Registration failed."),
-    };
-  };
+  const handleLogin = (collegeId: string, pin: string) => authenticate({ action: "LOGIN", collegeId, pin });
+  const handleRegister = (collegeId: string, name: string, pin: string, avatarColor: string) => authenticate({ action: "REGISTER", collegeId, name, pin, avatarColor });
 
   const handleLogout = async () => {
-    await fetch("/api/auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "LOGOUT" }),
-    });
-    setAuthenticatedUser(null);
-    setGroups([]);
-    setTasks([]);
-    setSelectedGroupId("all");
-    await fetchServerState();
+    if (authPending.current) throw new Error("An authentication request is already in progress.");
+    authPending.current = true;
+    beginAuthChange();
+    try {
+      await detachWebPush().catch((err) => setPushFeedback(err instanceof Error ? err.message : "Notification cleanup could not complete."));
+      await requestJson("/api/auth", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "LOGOUT" }),
+      });
+      clearAccountState();
+      await fetchServerState();
+    } finally { authPending.current = false; }
   };
 
   const requireSignedIn = (): boolean => {
@@ -392,10 +372,10 @@ export default function UniPulseApp() {
       const next = !prev;
       if (next) {
         document.documentElement.classList.add("dark");
-        localStorage.setItem(STORAGE_KEY_THEME, "dark");
+        try { localStorage.setItem(STORAGE_KEY_THEME, "dark"); } catch { /* Theme still applies when browser storage is unavailable. */ }
       } else {
         document.documentElement.classList.remove("dark");
-        localStorage.setItem(STORAGE_KEY_THEME, "light");
+        try { localStorage.setItem(STORAGE_KEY_THEME, "light"); } catch { /* Theme still applies when browser storage is unavailable. */ }
       }
       return next;
     });
@@ -479,12 +459,11 @@ export default function UniPulseApp() {
     if (!requireSignedIn()) return;
     setCronRunning(true);
     try {
-      const res = await fetch("/api/cron/reminders", {
+      const data = await requestJson("/api/cron/reminders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ forceUserId: currentUser.id }),
+        body: JSON.stringify({}),
       });
-      const data = await res.json();
       await fetchServerState();
 
       setPushFeedback(
@@ -496,6 +475,8 @@ export default function UniPulseApp() {
               data.processedTaskIds?.length || 0
             } active task(s) (${data.dispatchedNotifications || 0} push sent).`
       );
+    } catch (err) {
+      setPushFeedback(err instanceof Error ? err.message : (isAr ? "مقدرناش نشغّل التذكير." : "Could not run reminders."));
     } finally {
       setCronRunning(false);
     }
@@ -508,19 +489,17 @@ export default function UniPulseApp() {
   ) => {
     if (!requireSignedIn()) return;
 
-    // Request Web Push permission directly inside the user click gesture (iOS 16.4+ rule)
-    if (
-      typeof Notification !== "undefined" &&
-      Notification.permission === "default"
-    ) {
-      requestAndSubscribeWebPush(currentUser.id).then(() => {
+    // Keep permission requests inside the student's click gesture.
+    if (typeof Notification !== "undefined" && Notification.permission !== "denied") {
+      void requestAndSubscribeWebPush(currentUser.id).then((result) => {
         setPlatformState(detectPlatformPushState());
+        if (!result.ok) setPushFeedback(result.error || "Could not enable notifications.");
       });
     }
 
     setSyncStatus("syncing");
     try {
-      await fetch(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
+      await requestJson(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -538,7 +517,7 @@ export default function UniPulseApp() {
     if (!requireSignedIn()) return;
     setSyncStatus("syncing");
     try {
-      await fetch(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
+      await requestJson(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "skipped" }),
@@ -557,7 +536,7 @@ export default function UniPulseApp() {
 
     setSyncStatus("syncing");
     try {
-      await fetch(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
+      await requestJson(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -578,7 +557,7 @@ export default function UniPulseApp() {
     if (!requireSignedIn()) return;
     setSyncStatus("syncing");
     try {
-      await fetch(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
+      await requestJson(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -605,7 +584,7 @@ export default function UniPulseApp() {
     if (!requireSignedIn()) return;
     setSyncStatus("syncing");
     try {
-      await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -620,7 +599,7 @@ export default function UniPulseApp() {
     if (!requireSignedIn()) return;
     setSyncStatus("syncing");
     try {
-      await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`, {
         method: "DELETE",
       });
       await fetchServerState();
@@ -646,19 +625,18 @@ export default function UniPulseApp() {
     try {
       let uploadedAttachment: TaskAttachment | null = null;
       if (input.file) {
+        if (input.file.size > 4 * 1024 * 1024) throw new Error(isAr ? "الملف لازم يكون ٤ ميجا أو أقل." : "Files must be 4 MB or smaller.");
         const formData = new FormData();
         formData.append("file", input.file);
-        const upRes = await fetch("/api/upload", {
+        const upData = await requestJson("/api/upload", {
           method: "POST",
           body: formData,
         });
-        const upData = await upRes.json();
-        if (upData?.attachment) {
-          uploadedAttachment = upData.attachment;
-        }
+        if (!upData?.attachment) throw new Error("The file was not uploaded. Please retry.");
+        uploadedAttachment = upData.attachment;
       }
 
-      await fetch("/api/tasks", {
+      await requestJson("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -693,7 +671,7 @@ export default function UniPulseApp() {
     if (!requireSignedIn()) return;
     setSyncStatus("syncing");
     try {
-      await fetch(`/api/tasks/${encodeURIComponent(taskId)}/comments`, {
+      await requestJson(`/api/tasks/${encodeURIComponent(taskId)}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
@@ -709,10 +687,11 @@ export default function UniPulseApp() {
     if (!requireSignedIn()) return;
     setSyncStatus("syncing");
     try {
+      if (file.size > 4 * 1024 * 1024) throw new Error(isAr ? "الملف لازم يكون ٤ ميجا أو أقل." : "Files must be 4 MB or smaller.");
       const formData = new FormData();
       formData.append("file", file);
       formData.append("taskId", taskId);
-      await fetch("/api/upload", {
+      await requestJson("/api/upload", {
         method: "POST",
         body: formData,
       });
@@ -738,7 +717,7 @@ export default function UniPulseApp() {
     }
     setSyncStatus("syncing");
     try {
-      const res = await fetch("/api/groups", {
+      const data = await requestJson("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -748,7 +727,6 @@ export default function UniPulseApp() {
           inviteCode: customInviteCode,
         }),
       });
-      const data = await res.json();
       if (!data.ok) {
         return {
           ok: false,
@@ -781,7 +759,7 @@ export default function UniPulseApp() {
     }
     setSyncStatus("syncing");
     try {
-      const res = await fetch("/api/groups", {
+      const data = await requestJson("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -789,7 +767,6 @@ export default function UniPulseApp() {
           inviteCode,
         }),
       });
-      const data = await res.json();
       if (!data.ok) {
         return {
           ok: false,
@@ -822,13 +799,12 @@ export default function UniPulseApp() {
     if (!requireSignedIn()) return;
     setSyncStatus("syncing");
     try {
-      const res = await fetch(
+      const data = await requestJson(
         `/api/groups?id=${encodeURIComponent(groupId)}`,
         {
           method: "DELETE",
         }
       );
-      const data = await res.json();
       if (data.ok) {
         setSelectedGroupId("all");
         await fetchServerState();
@@ -840,7 +816,7 @@ export default function UniPulseApp() {
 
   const handleQuietHoursChange = async (start: string, end: string) => {
     if (!requireSignedIn()) return;
-    await fetch("/api/state", {
+    await requestJson("/api/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1044,6 +1020,7 @@ export default function UniPulseApp() {
           </div>
         </header>
 
+        {(connectionError || actionError) && <p role="alert" className="max-w-5xl mx-auto px-4 py-3 text-sm text-[#DC2626]">{actionError || connectionError}</p>}
         {/* Main Architectural Shell */}
         <div className="max-w-5xl mx-auto px-4 pt-5 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 items-start">
           {/* Desktop Navigation Rail */}
@@ -1437,11 +1414,11 @@ export default function UniPulseApp() {
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard?.writeText(
-                            activeGroup.inviteCode
-                          );
-                          setCopiedCode(activeGroup.inviteCode);
-                          setTimeout(() => setCopiedCode(null), 1500);
+                          if (!navigator.clipboard) { setActionError(isAr ? "انسخ كود الدعوة يدوياً من الشاشة." : "Copy the invite code manually from the screen."); return; }
+                          void navigator.clipboard.writeText(activeGroup.inviteCode).then(() => {
+                            setCopiedCode(activeGroup.inviteCode);
+                            setTimeout(() => setCopiedCode(null), 1500);
+                          }).catch((err) => setActionError(err instanceof Error ? err.message : "Could not copy invite code."));
                         }}
                         className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-strong)] text-[var(--text-primary)] font-mono-tabular text-xs font-bold cursor-pointer active:scale-[0.98]"
                       >
@@ -1477,9 +1454,11 @@ export default function UniPulseApp() {
                               })
                               .catch(() => {});
                           } else {
-                            navigator.clipboard?.writeText(shareUrl);
-                            setCopiedLink(activeGroup.inviteCode);
-                            setTimeout(() => setCopiedLink(null), 1800);
+                            if (!navigator.clipboard) { setActionError(isAr ? "انسخ كود الدعوة يدوياً من الشاشة." : "Copy the invite code manually from the screen."); return; }
+                            void navigator.clipboard.writeText(shareUrl).then(() => {
+                              setCopiedLink(activeGroup.inviteCode);
+                              setTimeout(() => setCopiedLink(null), 1800);
+                            }).catch((err) => setActionError(err instanceof Error ? err.message : "Could not copy invite link."));
                           }
                         }}
                         className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold cursor-pointer active:scale-[0.98]"
@@ -1495,11 +1474,10 @@ export default function UniPulseApp() {
                       </button>
 
                       {authenticatedUser &&
-                        (activeGroup.createdBy === authenticatedUser.id ||
-                          authenticatedUser.id === "user-you") && (
+                        activeGroup.createdBy === authenticatedUser.id && (
                           <button
                             type="button"
-                            onClick={() => handleDeleteGroup(activeGroup.id)}
+                            onClick={() => void handleDeleteGroup(activeGroup.id).catch((err) => setActionError(err instanceof Error ? err.message : "Could not delete group."))}
                             title="Delete this course group"
                             aria-label="Delete course group"
                             className="min-h-[38px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#DC2626]/10 hover:bg-[#DC2626]/20 border border-[#DC2626]/25 text-[#DC2626] text-xs font-bold cursor-pointer"
@@ -1768,6 +1746,7 @@ export default function UniPulseApp() {
 
         {/* Modals */}
         <TaskDetailModal
+          key={`detail-${authenticatedUser?.id || "guest"}`}
           task={detailTask}
           group={groups.find((g) => g.id === detailTask?.groupId)}
           currentUser={currentUser}
@@ -1782,6 +1761,7 @@ export default function UniPulseApp() {
         />
 
         <CreateTaskModal
+          key={`create-${authenticatedUser?.id || "guest"}`}
           open={showCreateTaskModal}
           onClose={() => setShowCreateTaskModal(false)}
           groups={groups}
@@ -1796,6 +1776,7 @@ export default function UniPulseApp() {
         />
 
         <GroupModal
+          key={`group-${authenticatedUser?.id || "guest"}`}
           open={showGroupModal}
           initialInviteCode={pendingInviteCode}
           onClose={() => setShowGroupModal(false)}

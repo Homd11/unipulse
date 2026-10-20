@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   title: "UniPulse — Batch Task Ledger & 2h Reminder Engine",
   description:
     "Collaborative student task ledger with file attachments, comments, 'On Me' opt-in, relentless 2-hour Web Push reminders, and a strictly private personal workspace.",
-  manifest: "/manifest.json",
+  manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -54,8 +54,6 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: "cover",
 };
 
@@ -66,7 +64,8 @@ export default function RootLayout({
 }) {
   return (
     <html
-      lang="en"
+      lang="ar"
+      dir="rtl"
       className={`${outfit.variable} ${plusJakarta.variable} ${jetbrainsMono.variable} ${cairo.variable}`}
     >
       <body className="antialiased selection:bg-[#0D9488] selection:text-white">
