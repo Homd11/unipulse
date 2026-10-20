@@ -7,6 +7,9 @@ async function setup(sql?: string) { const db = await database(sql); databases.p
 afterEach(async () => { await Promise.all(databases.splice(0).map(db => db.close())); });
 
 describe("production database boundary", () => {
+  it("fails closed when managed Storage RLS is disabled instead of changing its table", async () => {
+    await expect(setup("alter table storage.objects disable row level security;\n" + schemaSql()).then(() => undefined)).rejects.toThrow(/Storage RLS must already be enabled/);
+  });
   it("denies anonymous and authenticated direct table reads and writes", async () => {
     const db = await setup();
     await fixtures(db);

@@ -140,7 +140,13 @@ end $$;
 -- after server authorization. Existing object paths/URLs are retained as data.
 insert into storage.buckets (id,name,public) values ('task-files','task-files',false)
 on conflict (id) do update set public=false;
-alter table storage.objects enable row level security;
+-- Supabase owns Storage tables. Policy DDL is supported; ALTER TABLE is not.
+do $$
+begin
+  if not coalesce((select relrowsecurity from pg_class where oid='storage.objects'::regclass),false) then
+    raise exception 'Storage RLS must already be enabled by Supabase';
+  end if;
+end $$;
 drop policy if exists "Public read access for task-files" on storage.objects;
 drop policy if exists "Service role upload access for task-files" on storage.objects;
 -- A restrictive policy also defeats older permissive wildcard policies for this
@@ -149,7 +155,7 @@ drop policy if exists "task-files server access only" on storage.objects;
 create policy "task-files server access only" on storage.objects as restrictive
   for all to anon, authenticated
   using (bucket_id <> 'task-files') with check (bucket_id <> 'task-files');
-grant all privileges on storage.buckets, storage.objects to service_role;
+-- Keep Supabase's existing service-role Storage privileges unchanged.
 
 create or replace function public.consume_rate_limit(p_key text, p_limit integer, p_window_seconds integer)
 returns boolean

@@ -21,7 +21,8 @@ export async function database(sql = schemaSql()) {
     create publication supabase_realtime;
   `);
   // The old schema requests an unused extension unavailable in embedded Postgres.
-  await db.exec(sql.replace(/create extension if not exists "uuid-ossp";/gi, ""));
+  try { await db.exec(sql.replace(/create extension if not exists "uuid-ossp";/gi, "")); }
+  catch (error) { await db.close(); throw error; }
   return db;
 }
 
